@@ -1,13 +1,41 @@
+* {
+  box-sizing: border-box;
+}
+
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen", "Ubuntu",
+    "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+  -webkit-text-size-adjust: 100%;
 }
 
 code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
+  font-family:
+    source-code-pro, Menlo, Monaco, Consolas, "Courier New", monospace;
+}
+
+/* Prevent horizontal overflow on mobile */
+#root {
+  overflow-x: hidden;
+  width: 100%;
+}
+
+/* Better touch targets for mobile */
+@media (max-width: 600px) {
+  .MuiIconButton-root {
+    min-width: 40px;
+    min-height: 40px;
+  }
+
+  .MuiButton-root {
+    min-height: 36px;
+  }
+
+  .MuiTab-root {
+    min-height: 42px;
+  }
 }
