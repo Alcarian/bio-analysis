@@ -21,7 +21,15 @@ const AnalysisList: React.FC<AnalysisListProps> = ({ analyses, onDelete }) => {
   }
 
   return (
-    <Box>
+    <Box
+      sx={{
+        display: "grid",
+        gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" },
+        gridAutoFlow: "row",
+        gap: 2,
+        alignItems: "start",
+      }}
+    >
       {analyses.map((analysis) => (
         <AnalysisDetail
           key={analysis.id}

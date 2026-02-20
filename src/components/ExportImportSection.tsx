@@ -6,10 +6,13 @@ import {
   Alert,
   Paper,
   CircularProgress,
+  Collapse,
+  IconButton,
 } from "@mui/material";
 import {
   FileDownload as ExportIcon,
   FileUpload as ImportIcon,
+  ExpandMore as ExpandMoreIcon,
 } from "@mui/icons-material";
 import { useAuth } from "../contexts/AuthContext";
 import {
@@ -27,6 +30,7 @@ const ExportImportSection: React.FC<ExportImportSectionProps> = ({
   onImportComplete,
 }) => {
   const { pin } = useAuth();
+  const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{
     text: string;
@@ -117,62 +121,93 @@ const ExportImportSection: React.FC<ExportImportSectionProps> = ({
   };
 
   return (
-    <Paper variant="outlined" sx={{ p: { xs: 2, sm: 3 }, mb: 3 }}>
-      <Typography variant="h6" sx={{ mb: 2, fontWeight: 600 }}>
-        💾 Sauvegarde chiffrée
-      </Typography>
-      <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
-        Exportez vos analyses dans un fichier chiffré (.bioenc) pour les
-        sauvegarder ou les transférer vers un autre appareil. Le fichier est
-        protégé par votre PIN.
-      </Typography>
-
+    <Paper variant="outlined" sx={{ mb: 3 }}>
       <Box
         sx={{
           display: "flex",
-          gap: 2,
-          flexWrap: "wrap",
-          mb: message ? 2 : 0,
+          alignItems: "center",
+          justifyContent: "space-between",
+          px: { xs: 2, sm: 3 },
+          py: 1.5,
+          cursor: "pointer",
+          userSelect: "none",
         }}
+        onClick={() => setOpen((prev) => !prev)}
       >
-        <Button
-          variant="contained"
-          startIcon={
-            loading ? (
-              <CircularProgress size={18} color="inherit" />
-            ) : (
-              <ExportIcon />
-            )
-          }
-          onClick={handleExport}
-          disabled={loading || !pin}
+        <Typography variant="h6" sx={{ fontWeight: 600 }}>
+          💾 Sauvegarde chiffrée
+        </Typography>
+        <IconButton
+          size="small"
+          aria-label={open ? "Réduire" : "Déplier"}
+          sx={{
+            transform: open ? "rotate(180deg)" : "rotate(0deg)",
+            transition: "transform 0.25s",
+          }}
         >
-          Exporter
-        </Button>
-
-        <Button
-          variant="outlined"
-          startIcon={loading ? <CircularProgress size={18} /> : <ImportIcon />}
-          onClick={handleImportClick}
-          disabled={loading || !pin}
-        >
-          Importer
-        </Button>
-
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".bioenc"
-          style={{ display: "none" }}
-          onChange={handleFileSelected}
-        />
+          <ExpandMoreIcon />
+        </IconButton>
       </Box>
 
-      {message && (
-        <Alert severity={message.severity} sx={{ mt: 2 }}>
-          {message.text}
-        </Alert>
-      )}
+      <Collapse in={open}>
+        <Box sx={{ px: { xs: 2, sm: 3 }, pb: { xs: 2, sm: 3 } }}>
+          <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
+            Exportez vos analyses dans un fichier chiffré (.bioenc) pour les
+            sauvegarder ou les transférer vers un autre appareil. Le fichier est
+            protégé par votre PIN.
+          </Typography>
+
+          <Box
+            sx={{
+              display: "flex",
+              gap: 2,
+              flexWrap: "wrap",
+              mb: message ? 2 : 0,
+              justifyContent: "center",
+            }}
+          >
+            <Button
+              variant="contained"
+              startIcon={
+                loading ? (
+                  <CircularProgress size={18} color="inherit" />
+                ) : (
+                  <ExportIcon />
+                )
+              }
+              onClick={handleExport}
+              disabled={loading || !pin}
+            >
+              Exporter
+            </Button>
+
+            <Button
+              variant="outlined"
+              startIcon={
+                loading ? <CircularProgress size={18} /> : <ImportIcon />
+              }
+              onClick={handleImportClick}
+              disabled={loading || !pin}
+            >
+              Importer
+            </Button>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".bioenc"
+              style={{ display: "none" }}
+              onChange={handleFileSelected}
+            />
+          </Box>
+
+          {message && (
+            <Alert severity={message.severity} sx={{ mt: 2 }}>
+              {message.text}
+            </Alert>
+          )}
+        </Box>
+      </Collapse>
     </Paper>
   );
 };

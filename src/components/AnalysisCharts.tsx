@@ -115,6 +115,9 @@ const TestTrendChart: React.FC<{
   const unit = data[0].unit ?? "";
   const average = data.reduce((sum, d) => sum + d.value, 0) / data.length;
 
+  // Affiche au maximum ~6 dates sur l'axe X
+  const xAxisInterval = data.length <= 6 ? 0 : Math.ceil(data.length / 6) - 1;
+
   // Calcul du domaine Y adapté aux valeurs normales + données
   const allValues = data.map((d) => d.value);
   const dataMin = Math.min(...allValues);
@@ -167,7 +170,7 @@ const TestTrendChart: React.FC<{
               angle={isMobile ? -45 : -30}
               textAnchor="end"
               height={isMobile ? 60 : 50}
-              interval={0}
+              interval={xAxisInterval}
             />
             <YAxis
               tick={{ fontSize: isMobile ? 9 : 11 }}
@@ -328,7 +331,7 @@ const AbnormalityTrendChart: React.FC<{
               angle={isMobile ? -45 : -30}
               textAnchor="end"
               height={isMobile ? 60 : 50}
-              interval={0}
+              interval={data.length <= 6 ? 0 : Math.ceil(data.length / 6) - 1}
             />
             <YAxis
               tick={{ fontSize: isMobile ? 9 : 11 }}

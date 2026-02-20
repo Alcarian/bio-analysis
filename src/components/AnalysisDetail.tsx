@@ -11,11 +11,13 @@ import {
 } from "@mui/material";
 import {
   Delete as DeleteIcon,
-  Download as DownloadIcon,
+  PictureAsPdf as PdfIcon,
   Visibility as VisibilityIcon,
 } from "@mui/icons-material";
 import { PatientAnalysis } from "../types";
 import { getAnomalySummary } from "../services/biochemistryAnalyzer";
+import { exportAnalysisPdf } from "../services/pdfExportService";
+import { usePdfPassword } from "../contexts/PdfPasswordContext";
 import AnalysisDetailDialog from "./AnalysisDetailDialog";
 import DeleteConfirmDialog from "./DeleteConfirmDialog";
 
@@ -33,6 +35,7 @@ const AnalysisDetail: React.FC<AnalysisDetailProps> = ({
 }) => {
   const [detailDialogOpen, setDetailDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const { pdfPassword } = usePdfPassword();
 
   const anomalySummary = useMemo(
     () => getAnomalySummary(analysis.biochemistryData),
@@ -44,14 +47,9 @@ const AnalysisDetail: React.FC<AnalysisDetailProps> = ({
     setDeleteDialogOpen(false);
   };
 
-  const handleDownloadData = () => {
-    const dataStr = JSON.stringify(analysis.biochemistryData, null, 2);
-    const dataBlob = new Blob([dataStr], { type: "application/json" });
-    const url = URL.createObjectURL(dataBlob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${analysis.date}_${analysis.fileName.replace(".pdf", "")}.json`;
-    link.click();
+  const handleDownloadPdf = () => {
+    if (!pdfPassword) return;
+    exportAnalysisPdf(analysis, pdfPassword);
   };
 
   return (
@@ -68,12 +66,22 @@ const AnalysisDetail: React.FC<AnalysisDetailProps> = ({
               mb: 1,
             }}
           >
-            <Typography
-              variant="h6"
-              sx={{ fontSize: { xs: "1rem", sm: "1.25rem" } }}
+            <Box
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                gap: 1,
+                flexWrap: "wrap",
+              }}
             >
-              {analysis.date}
-            </Typography>
+              <Typography variant="body1">Prélèvement du</Typography>
+              <Typography
+                variant="h6"
+                sx={{ fontSize: { xs: "1rem", sm: "1.25rem" } }}
+              >
+                {analysis.date}
+              </Typography>
+            </Box>
             <Typography
               variant="caption"
               color="textSecondary"
@@ -113,6 +121,8 @@ const AnalysisDetail: React.FC<AnalysisDetailProps> = ({
         </CardContent>
         <CardActions
           sx={{
+            display: "flex",
+            flexDirection: "column",
             flexWrap: "wrap",
             gap: { xs: 0.5, sm: 0 },
             px: { xs: 1, sm: 2 },
@@ -120,29 +130,38 @@ const AnalysisDetail: React.FC<AnalysisDetailProps> = ({
         >
           <Button
             size="small"
+            variant="outlined"
             startIcon={<VisibilityIcon />}
             onClick={() => setDetailDialogOpen(true)}
             sx={{ fontSize: { xs: "0.7rem", sm: "0.8125rem" } }}
           >
-            Détails
+            Afficher les résultats
           </Button>
-          <Button
-            size="small"
-            startIcon={<DownloadIcon />}
-            onClick={handleDownloadData}
-            sx={{ fontSize: { xs: "0.7rem", sm: "0.8125rem" } }}
+          <Box
+            sx={{
+              display: "flex",
+              justifyContent: "space-between",
+              width: "100%",
+            }}
           >
-            Exporter
-          </Button>
-          <Button
-            size="small"
-            color="error"
-            startIcon={<DeleteIcon />}
-            onClick={() => setDeleteDialogOpen(true)}
-            sx={{ fontSize: { xs: "0.7rem", sm: "0.8125rem" } }}
-          >
-            Supprimer
-          </Button>
+            <Button
+              size="small"
+              startIcon={<PdfIcon />}
+              onClick={handleDownloadPdf}
+              sx={{ fontSize: { xs: "0.7rem", sm: "0.8125rem" } }}
+            >
+              Exporter PDF
+            </Button>
+            <Button
+              size="small"
+              color="error"
+              startIcon={<DeleteIcon />}
+              onClick={() => setDeleteDialogOpen(true)}
+              sx={{ fontSize: { xs: "0.7rem", sm: "0.8125rem" } }}
+            >
+              Supprimer
+            </Button>
+          </Box>
         </CardActions>
       </Card>
 
