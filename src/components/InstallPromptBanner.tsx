@@ -5,11 +5,12 @@ import {
   Button,
   Box,
   Typography,
-  Paper,
   IconButton,
   useMediaQuery,
   useTheme,
-  Slide,
+  Dialog,
+  DialogContent,
+  DialogActions,
 } from "@mui/material";
 import {
   GetApp as InstallIcon,
@@ -138,111 +139,35 @@ const InstallPromptBanner: React.FC = () => {
   }
 
   // ── Guide iOS (Safari → Partager → Ajouter à l'écran d'accueil) ──
-  if (showIOSGuide) {
-    return (
-      <Slide direction="up" in mountOnEnter unmountOnExit>
-        <Paper
-          elevation={6}
-          sx={{
-            position: "fixed",
-            bottom: 0,
-            left: 0,
-            right: 0,
-            zIndex: 1400,
-            p: 2,
-            borderRadius: "16px 16px 0 0",
-            display: "flex",
-            flexDirection: "column",
-            gap: 1,
-          }}
-        >
-          <Box
-            sx={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-            }}
-          >
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-              <MobileIcon color="primary" />
-              <Typography variant="subtitle1" fontWeight={600}>
-                Installer Bio Analysis
-              </Typography>
-            </Box>
-            <IconButton size="small" onClick={handleDismiss}>
-              <CloseIcon fontSize="small" />
-            </IconButton>
-          </Box>
-
-          <Typography variant="body2" color="textSecondary">
-            Pour installer l'application sur votre appareil :
-          </Typography>
-
-          <Box sx={{ pl: 1 }}>
-            <Typography variant="body2">
-              1. Appuyez sur{" "}
-              <ShareIcon
-                sx={{ fontSize: 16, verticalAlign: "middle", mx: 0.5 }}
-              />{" "}
-              <strong>Partager</strong>
-            </Typography>
-            <Typography variant="body2">
-              2. Faites défiler et appuyez sur{" "}
-              <strong>« Sur l'écran d'accueil »</strong>
-            </Typography>
-            <Typography variant="body2">
-              3. Appuyez sur <strong>Ajouter</strong>
-            </Typography>
-          </Box>
-
-          <Typography
-            variant="caption"
-            color="textSecondary"
-            sx={{ mt: 0.5 }}
-          >
-            💡 L'app fonctionnera 100% hors-ligne, sans aucune donnée envoyée
-            sur internet.
-          </Typography>
-        </Paper>
-      </Slide>
-    );
-  }
-
   // ── Bandeau principal (Chrome / Edge / autres) ──
-  if (!showBanner) return null;
+  const open = showIOSGuide || showBanner;
 
   return (
-    <Slide direction="up" in mountOnEnter unmountOnExit>
-      <Paper
-        elevation={6}
-        sx={{
-          position: "fixed",
-          bottom: isMobile ? 0 : 24,
-          left: isMobile ? 0 : "auto",
-          right: isMobile ? 0 : 24,
-          zIndex: 1400,
-          p: isMobile ? 2 : 2.5,
-          borderRadius: isMobile ? "16px 16px 0 0" : 3,
-          maxWidth: isMobile ? "100%" : 420,
-          display: "flex",
-          flexDirection: "column",
-          gap: 1.5,
-        }}
-      >
+    <Dialog
+      open={open}
+      onClose={handleDismiss}
+      maxWidth="xs"
+      fullWidth
+      sx={{ zIndex: 1500 }}
+      PaperProps={{ sx: { borderRadius: 3, p: 0.5 } }}
+    >
+      <DialogContent sx={{ pb: 0 }}>
+        {/* Header */}
         <Box
           sx={{
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
+            mb: 1.5,
           }}
         >
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
             {isMobile ? (
-              <MobileIcon color="primary" />
+              <MobileIcon color="primary" fontSize="medium" />
             ) : (
-              <DesktopIcon color="primary" />
+              <DesktopIcon color="primary" fontSize="medium" />
             )}
-            <Typography variant="subtitle1" fontWeight={600}>
+            <Typography variant="subtitle1" fontWeight={700}>
               Installer Bio Analysis
             </Typography>
           </Box>
@@ -251,17 +176,49 @@ const InstallPromptBanner: React.FC = () => {
           </IconButton>
         </Box>
 
-        <Typography variant="body2" color="textSecondary">
-          Installez l'application pour un accès rapide depuis votre{" "}
-          {isMobile ? "écran d'accueil" : "bureau"}. Vos données restent
-          100% locales et chiffrées.
-        </Typography>
+        {showIOSGuide ? (
+          // Contenu iOS
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+            <Typography variant="body2" color="textSecondary">
+              Pour installer l'application sur votre appareil :
+            </Typography>
+            <Box sx={{ pl: 1 }}>
+              <Typography variant="body2">
+                1. Appuyez sur{" "}
+                <ShareIcon
+                  sx={{ fontSize: 16, verticalAlign: "middle", mx: 0.5 }}
+                />{" "}
+                <strong>Partager</strong>
+              </Typography>
+              <Typography variant="body2">
+                2. Faites défiler et appuyez sur{" "}
+                <strong>« Sur l'écran d'accueil »</strong>
+              </Typography>
+              <Typography variant="body2">
+                3. Appuyez sur <strong>Ajouter</strong>
+              </Typography>
+            </Box>
+            <Typography variant="caption" color="textSecondary">
+              💡 L'app fonctionnera 100% hors-ligne, sans aucune donnée envoyée
+              sur internet.
+            </Typography>
+          </Box>
+        ) : (
+          // Contenu Chrome / Edge
+          <Typography variant="body2" color="textSecondary">
+            Installez l'application pour un accès rapide depuis votre{" "}
+            {isMobile ? "écran d'accueil" : "bureau"}. Vos données restent 100%
+            locales et chiffrées.
+          </Typography>
+        )}
+      </DialogContent>
 
-        <Box sx={{ display: "flex", gap: 1, justifyContent: "flex-end" }}>
-          <Button size="small" onClick={handleDismiss} color="inherit">
-            Plus tard
-          </Button>
-          {deferredPrompt ? (
+      <DialogActions sx={{ px: 3, pb: 2, pt: 1.5 }}>
+        <Button size="small" onClick={handleDismiss} color="inherit">
+          Plus tard
+        </Button>
+        {!showIOSGuide &&
+          (deferredPrompt ? (
             <Button
               variant="contained"
               size="small"
@@ -271,13 +228,16 @@ const InstallPromptBanner: React.FC = () => {
               Installer
             </Button>
           ) : (
-            <Typography variant="caption" color="textSecondary" sx={{ py: 1 }}>
+            <Typography
+              variant="caption"
+              color="textSecondary"
+              sx={{ py: 0.5 }}
+            >
               Utilisez le menu de votre navigateur pour installer l'app.
             </Typography>
-          )}
-        </Box>
-      </Paper>
-    </Slide>
+          ))}
+      </DialogActions>
+    </Dialog>
   );
 };
 
