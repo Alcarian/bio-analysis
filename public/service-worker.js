@@ -1,29 +1,26 @@
 /* eslint-disable no-restricted-globals */
 
-// This service worker uses a cache-first strategy for all static assets.
-// It precaches the app shell and serves it from cache when offline.
+// This service worker uses a cache-first strategy for static assets
+// and network-first for navigation requests (HTML).
 
-const CACHE_NAME = "bio-analysis-v1";
+const CACHE_NAME = "bio-analysis-v2";
 
-// Assets to precache on install
-const PRECACHE_URLS = [
-  "/",
-  "/index.html",
-  "/manifest.json",
-  "/pdf.worker.min.mjs",
-];
-
-// Install event — precache essential assets
+// Install event — ne PAS appeler skipWaiting() automatiquement.
+// On attend le message SKIP_WAITING envoyé par l'utilisateur.
 self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches
-      .open(CACHE_NAME)
-      .then((cache) => cache.addAll(PRECACHE_URLS))
-      .then(() => self.skipWaiting()),
-  );
+  // On ne précache plus d'URLs absolues (incompatibles avec les sous-chemins GitHub Pages).
+  // Les assets seront mis en cache dynamiquement via le fetch handler.
+  event.waitUntil(caches.open(CACHE_NAME));
 });
 
-// Activate event — clean up old caches
+// Écoute le message SKIP_WAITING envoyé par UpdateBanner
+self.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
+});
+
+// Activate event — nettoie les anciens caches et prend le contrôle
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches
@@ -39,14 +36,33 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-// Fetch event — cache-first strategy
+// Fetch event
 self.addEventListener("fetch", (event) => {
-  // Only handle GET requests
+  // Only handle GET requests from same origin
   if (event.request.method !== "GET") return;
-
-  // Skip cross-origin requests
   if (!event.request.url.startsWith(self.location.origin)) return;
 
+  // Navigation requests (HTML) : network-first pour toujours avoir le dernier index.html
+  if (event.request.mode === "navigate") {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          const responseToCache = response.clone();
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(event.request, responseToCache);
+          });
+          return response;
+        })
+        .catch(() => {
+          return caches
+            .match(event.request)
+            .then((cached) => cached || caches.match("/index.html"));
+        }),
+    );
+    return;
+  }
+
+  // Static assets (JS, CSS, images) : cache-first
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       if (cachedResponse) {
@@ -55,7 +71,6 @@ self.addEventListener("fetch", (event) => {
 
       return fetch(event.request)
         .then((response) => {
-          // Don't cache non-successful responses
           if (
             !response ||
             response.status !== 200 ||
@@ -64,7 +79,6 @@ self.addEventListener("fetch", (event) => {
             return response;
           }
 
-          // Clone the response — one for cache, one for browser
           const responseToCache = response.clone();
           caches.open(CACHE_NAME).then((cache) => {
             cache.put(event.request, responseToCache);
@@ -73,10 +87,6 @@ self.addEventListener("fetch", (event) => {
           return response;
         })
         .catch(() => {
-          // If both cache and network fail, return offline fallback for navigation
-          if (event.request.mode === "navigate") {
-            return caches.match("/index.html");
-          }
           return new Response("Offline", { status: 503 });
         });
     }),

@@ -90,11 +90,9 @@ function checkValidServiceWorker(swUrl: string, config?: Config) {
         response.status === 404 ||
         (contentType != null && contentType.indexOf("javascript") === -1)
       ) {
-        // No SW found — reload the page
+        // No SW found — unregister without reload to avoid infinite loop
         navigator.serviceWorker.ready.then((registration) => {
-          registration.unregister().then(() => {
-            window.location.reload();
-          });
+          registration.unregister();
         });
       } else {
         registerValidSW(swUrl, config);

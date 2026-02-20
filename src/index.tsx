@@ -15,7 +15,10 @@ root.render(
 // Activer le Service Worker pour le mode offline (PWA)
 serviceWorkerRegistration.register({
   onSuccess: () => console.log("App disponible hors ligne."),
-  onUpdate: () => console.log("Mise à jour disponible. Rafraîchissez la page."),
+  onUpdate: (registration) => {
+    // Émet un événement personnalisé pour que UpdateBanner puisse réagir
+    window.dispatchEvent(new CustomEvent("swUpdate", { detail: registration }));
+  },
 });
 
 reportWebVitals();
