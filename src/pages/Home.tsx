@@ -31,7 +31,7 @@ import AnalysisCharts from "../components/AnalysisCharts";
 import ExportImportSection from "../components/ExportImportSection";
 import PdfPasswordDialog from "../components/PdfPasswordDialog";
 import WelcomeGuide from "../components/WelcomeGuide";
-import InstallPromptBanner from "../components/InstallPromptBanner";
+
 import { useFiles } from "../hooks/useFiles";
 import { useAnalyses } from "../hooks/useAnalyses";
 import { useFileProcessing } from "../hooks/useFileProcessing";
@@ -147,7 +147,7 @@ const Home: React.FC = () => {
         >
           <Box sx={{ display: "flex", alignItems: "center" }}>
             <img
-              src="/Logo-bio-analysis.png"
+              src={process.env.PUBLIC_URL + "/Logo-bio-analysis.png"}
               alt="Bio Analysis"
               style={{ height: isMobile ? 100 : 200, width: "auto" }}
             />
@@ -372,8 +372,6 @@ const Home: React.FC = () => {
           <KeyboardArrowUpIcon />
         </Fab>
       </Zoom>
-
-      <InstallPromptBanner />
     </Container>
   );
 };

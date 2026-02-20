@@ -6,6 +6,7 @@ import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { PdfPasswordProvider } from "./contexts/PdfPasswordContext";
 import { lightTheme, darkTheme } from "./theme/themes";
 import LockScreen from "./components/LockScreen";
+import InstallPromptBanner from "./components/InstallPromptBanner";
 
 function AuthGate() {
   const { status } = useAuth();
@@ -22,6 +23,7 @@ function ThemedApp() {
   return (
     <ThemeProvider theme={mode === "dark" ? darkTheme : lightTheme}>
       <CssBaseline />
+      <InstallPromptBanner />
       <AuthGate />
     </ThemeProvider>
   );
