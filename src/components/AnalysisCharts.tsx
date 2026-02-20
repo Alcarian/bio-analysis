@@ -97,6 +97,9 @@ const TestTrendChart: React.FC<{
   testName: string;
   data: TestTrendData[];
 }> = ({ testName, data }) => {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+
   const hasAbnormal = data.some(
     (d) =>
       (d.normalMin && d.value < d.normalMin) ||
@@ -111,6 +114,18 @@ const TestTrendChart: React.FC<{
   const normalMax = data[0].normalMax;
   const unit = data[0].unit ?? "";
   const average = data.reduce((sum, d) => sum + d.value, 0) / data.length;
+
+  // Calcul du domaine Y adapté aux valeurs normales + données
+  const allValues = data.map((d) => d.value);
+  const dataMin = Math.min(...allValues);
+  const dataMax = Math.max(...allValues);
+  const rangeMin = Math.min(dataMin, normalMin ?? dataMin);
+  const rangeMax = Math.max(dataMax, normalMax ?? dataMax);
+  const padding = (rangeMax - rangeMin) * 0.15 || 1;
+  const yDomain: [number, number] = [
+    Math.max(0, Math.floor((rangeMin - padding) * 100) / 100),
+    Math.ceil((rangeMax + padding) * 100) / 100,
+  ];
 
   return (
     <Card sx={{ mb: 3 }}>
@@ -138,17 +153,27 @@ const TestTrendChart: React.FC<{
         <ResponsiveContainer width="100%" height={250}>
           <LineChart
             data={data}
-            margin={{ left: -10, right: 5, top: 5, bottom: 5 }}
+            margin={{
+              left: isMobile ? 5 : 0,
+              right: isMobile ? 5 : 10,
+              top: 5,
+              bottom: isMobile ? 10 : 5,
+            }}
           >
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis
               dataKey="date"
-              tick={{ fontSize: 11 }}
-              angle={-30}
+              tick={{ fontSize: isMobile ? 9 : 11 }}
+              angle={isMobile ? -45 : -30}
               textAnchor="end"
-              height={50}
+              height={isMobile ? 60 : 50}
+              interval={0}
             />
-            <YAxis tick={{ fontSize: 11 }} width={45} />
+            <YAxis
+              tick={{ fontSize: isMobile ? 9 : 11 }}
+              width={isMobile ? 40 : 50}
+              domain={yDomain}
+            />
             <Tooltip content={<CustomTooltip />} />
             <Legend wrapperStyle={{ fontSize: 12 }} />
             {normalMin !== undefined && normalMax !== undefined && (
@@ -270,6 +295,9 @@ const TestTrendChart: React.FC<{
 const AbnormalityTrendChart: React.FC<{
   data: AbnormalityChartData[];
 }> = ({ data }) => {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+
   if (data.length === 0) {
     return null;
   }
@@ -286,17 +314,26 @@ const AbnormalityTrendChart: React.FC<{
         <ResponsiveContainer width="100%" height={200}>
           <BarChart
             data={data}
-            margin={{ left: -10, right: 5, top: 5, bottom: 5 }}
+            margin={{
+              left: isMobile ? 5 : 0,
+              right: isMobile ? 5 : 10,
+              top: 5,
+              bottom: isMobile ? 10 : 5,
+            }}
           >
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis
               dataKey="date"
-              tick={{ fontSize: 11 }}
-              angle={-30}
+              tick={{ fontSize: isMobile ? 9 : 11 }}
+              angle={isMobile ? -45 : -30}
               textAnchor="end"
-              height={50}
+              height={isMobile ? 60 : 50}
+              interval={0}
             />
-            <YAxis tick={{ fontSize: 11 }} width={35} />
+            <YAxis
+              tick={{ fontSize: isMobile ? 9 : 11 }}
+              width={isMobile ? 30 : 35}
+            />
             <Tooltip content={<CustomTooltip valueLabel="Anomalies" />} />
             <Legend wrapperStyle={{ fontSize: 12 }} />
             <Bar

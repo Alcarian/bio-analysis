@@ -25,7 +25,14 @@ const encryptedHistoryStore = localforage.createInstance({
   description: "Historique des analyses chiffré",
 });
 
+const encryptedSettingsStore = localforage.createInstance({
+  name: "bio-analysis",
+  storeName: "encrypted_settings",
+  description: "Paramètres chiffrés (mot de passe PDF, etc.)",
+});
+
 const FILE_INDEX_KEY = "file_index_enc";
+const PDF_PASSWORD_KEY = "pdf_password_enc";
 
 // ─── Fichiers PDF chiffrés ───────────────────────────────────────────────────
 
@@ -210,6 +217,45 @@ export const deleteAllAnalysesEncrypted = async (
   patientId: string,
 ): Promise<void> => {
   await encryptedHistoryStore.removeItem(getHistoryKey(patientId));
+};
+
+// ─── Mot de passe PDF chiffré ────────────────────────────────────────────────
+
+/**
+ * Sauvegarde le mot de passe PDF chiffré avec le PIN utilisateur.
+ * Le mot de passe est chiffré via AES-256-GCM puis stocké dans IndexedDB.
+ */
+export const savePdfPasswordEncrypted = async (
+  pdfPassword: string,
+  pin: string,
+): Promise<void> => {
+  const encrypted = await encrypt(pdfPassword, pin);
+  await encryptedSettingsStore.setItem(PDF_PASSWORD_KEY, encrypted);
+};
+
+/**
+ * Récupère le mot de passe PDF déchiffré depuis IndexedDB.
+ * Retourne null si aucun mot de passe n'est enregistré ou si le déchiffrement échoue.
+ */
+export const loadPdfPasswordEncrypted = async (
+  pin: string,
+): Promise<string | null> => {
+  const encrypted =
+    await encryptedSettingsStore.getItem<ArrayBuffer>(PDF_PASSWORD_KEY);
+  if (!encrypted) return null;
+  try {
+    const buffer = await decrypt(encrypted, pin);
+    return new TextDecoder().decode(buffer);
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Supprime le mot de passe PDF enregistré.
+ */
+export const deletePdfPasswordEncrypted = async (): Promise<void> => {
+  await encryptedSettingsStore.removeItem(PDF_PASSWORD_KEY);
 };
 
 // ─── Migration des données non chiffrées vers chiffrées ──────────────────────

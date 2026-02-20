@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { FileStatus, PatientAnalysis } from "../types";
 import { getFileFromStorage } from "../services/fileStorage";
 import { getPatientHistory } from "../services/patientHistory";
@@ -33,12 +33,33 @@ interface UseFileProcessingReturn {
     fileNames: string[],
     onComplete: () => void,
   ) => Promise<void>;
+  /** Nom du fichier en attente de mot de passe (null = pas de demande) */
+  pendingPasswordFile: string | null;
+  /** Rappel une fois le mot de passe fourni par l'utilisateur */
+  retryWithPassword: (password: string) => void;
+  /** Annuler la demande de mot de passe */
+  cancelPasswordRequest: () => void;
 }
+
+/** Détecte si une erreur pdf.js est liée au mot de passe */
+const isPasswordError = (error: unknown): boolean => {
+  if (error instanceof Error) {
+    const msg = error.message.toLowerCase();
+    return (
+      msg.includes("password") ||
+      msg.includes("mot de passe") ||
+      msg.includes("incorrect password") ||
+      msg.includes("no password given")
+    );
+  }
+  return false;
+};
 
 export const useFileProcessing = (
   refreshAnalyses: () => void,
   pin: string | null,
   pdfPassword: string,
+  onPdfPasswordSet?: (password: string) => void,
 ): UseFileProcessingReturn => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingFile, setProcessingFile] = useState<string | null>(null);
@@ -47,6 +68,41 @@ export const useFileProcessing = (
   );
   const [notification, setNotification] =
     useState<ProcessingNotification | null>(null);
+
+  // ── Ref pour toujours avoir le mot de passe PDF le plus récent ─────────
+  // Synchronisé immédiatement dans la phase de rendu (pas via useEffect)
+  // pour éliminer tout décalage entre le state context et la valeur lue
+  const pdfPasswordRef = React.useRef(pdfPassword);
+  pdfPasswordRef.current = pdfPassword;
+
+  // ── Gestion de la demande de mot de passe PDF ──────────────────────────
+  const [pendingPasswordFile, setPendingPasswordFile] = useState<string | null>(
+    null,
+  );
+  const pendingResolveRef = React.useRef<((pw: string | null) => void) | null>(
+    null,
+  );
+
+  const retryWithPassword = (password: string) => {
+    if (onPdfPasswordSet) onPdfPasswordSet(password);
+    pdfPasswordRef.current = password; // mise à jour immédiate du ref
+    if (pendingResolveRef.current) pendingResolveRef.current(password);
+    pendingResolveRef.current = null;
+    setPendingPasswordFile(null);
+  };
+
+  const cancelPasswordRequest = () => {
+    if (pendingResolveRef.current) pendingResolveRef.current(null);
+    pendingResolveRef.current = null;
+    setPendingPasswordFile(null);
+  };
+
+  /** Demande le mot de passe à l'utilisateur via la dialog */
+  const askForPassword = (fileName: string): Promise<string | null> =>
+    new Promise((resolve) => {
+      pendingResolveRef.current = resolve;
+      setPendingPasswordFile(fileName);
+    });
 
   const clearNotification = () => setNotification(null);
   const resetStatuses = () => setFileStatuses({});
@@ -78,7 +134,39 @@ export const useFileProcessing = (
         return false;
       }
 
-      const pdfData = await extractPDFText(file, pdfPassword);
+      // Tentative d'extraction avec le mot de passe le plus récent (via ref)
+      let effectivePassword = pdfPasswordRef.current;
+      let pdfData;
+      try {
+        pdfData = await extractPDFText(file, effectivePassword);
+      } catch (extractError) {
+        if (isPasswordError(extractError)) {
+          // Le PDF est protégé : demander le mot de passe à l'utilisateur
+          setIsProcessing(false);
+          setProcessingFile(null);
+          setFileStatuses((prev) => ({ ...prev, [fileName]: "pending" }));
+
+          const userPassword = await askForPassword(fileName);
+          if (!userPassword) {
+            // L'utilisateur a annulé
+            setFileStatuses((prev) => ({ ...prev, [fileName]: "error" }));
+            if (!silent)
+              setNotification({
+                message: `Analyse annulée — mot de passe requis pour « ${fileName} ».`,
+                severity: "warning",
+              });
+            return false;
+          }
+          // Réessayer avec le mot de passe fourni
+          effectivePassword = userPassword;
+          setIsProcessing(true);
+          setProcessingFile(fileName);
+          setFileStatuses((prev) => ({ ...prev, [fileName]: "processing" }));
+          pdfData = await extractPDFText(file, effectivePassword);
+        } else {
+          throw extractError;
+        }
+      }
       const biochemistryData = analyzeBiochemistryData(
         pdfData.biochemistryData,
       );
@@ -195,5 +283,8 @@ export const useFileProcessing = (
     resetStatuses,
     handleProcessPDF: (fileName) => void handleProcessPDF(fileName),
     handleProcessAll,
+    pendingPasswordFile,
+    retryWithPassword,
+    cancelPasswordRequest,
   };
 };

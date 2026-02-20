@@ -117,7 +117,7 @@ const ExportImportSection: React.FC<ExportImportSectionProps> = ({
   };
 
   return (
-    <Paper variant="outlined" sx={{ p: { xs: 2, sm: 3 }, mt: 3 }}>
+    <Paper variant="outlined" sx={{ p: { xs: 2, sm: 3 }, mb: 3 }}>
       <Typography variant="h6" sx={{ mb: 2, fontWeight: 600 }}>
         💾 Sauvegarde chiffrée
       </Typography>

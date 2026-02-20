@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import {
   Container,
   Box,
@@ -9,13 +9,17 @@ import {
   Alert,
   IconButton,
   Tooltip,
+  Fab,
   useMediaQuery,
   useTheme,
+  Zoom,
 } from "@mui/material";
 import {
   DarkMode as DarkModeIcon,
   LightMode as LightModeIcon,
   Lock as LockIcon,
+  VpnKey as VpnKeyIcon,
+  KeyboardArrowUp as KeyboardArrowUpIcon,
 } from "@mui/icons-material";
 import { useThemeMode } from "../contexts/ThemeContext";
 import { useAuth } from "../contexts/AuthContext";
@@ -25,18 +29,60 @@ import ImportTab from "../components/ImportTab";
 import AnalysesTab from "../components/AnalysesTab";
 import AnalysisCharts from "../components/AnalysisCharts";
 import ExportImportSection from "../components/ExportImportSection";
+import PdfPasswordDialog from "../components/PdfPasswordDialog";
+import WelcomeGuide from "../components/WelcomeGuide";
+import InstallPromptBanner from "../components/InstallPromptBanner";
 import { useFiles } from "../hooks/useFiles";
 import { useAnalyses } from "../hooks/useAnalyses";
 import { useFileProcessing } from "../hooks/useFileProcessing";
+import { savePdfPasswordEncrypted } from "../services/encryptedStorage";
 import { PATIENT_ID } from "../constants";
+
+const WELCOME_GUIDE_KEY = "bio-analysis-welcome-done";
 
 const Home: React.FC = () => {
   const [tabValue, setTabValue] = useState(0);
+  const [showPasswordDialog, setShowPasswordDialog] = useState(false);
+  const [showWelcomeGuide, setShowWelcomeGuide] = useState(
+    () => !localStorage.getItem(WELCOME_GUIDE_KEY),
+  );
   const { mode, toggleMode } = useThemeMode();
   const { lock, pin } = useAuth();
-  const { pdfPassword } = usePdfPassword();
+  const {
+    pdfPassword,
+    setPdfPassword,
+    isSet: hasPdfPassword,
+  } = usePdfPassword();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const [showScrollTop, setShowScrollTop] = useState(false);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setShowScrollTop(window.scrollY > 200);
+    };
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  const scrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  /** Met à jour le mot de passe PDF en mémoire ET le persiste chiffré */
+  const updatePdfPassword = useCallback(
+    async (password: string) => {
+      setPdfPassword(password);
+      if (pin) {
+        try {
+          await savePdfPasswordEncrypted(password, pin);
+        } catch (e) {
+          console.error("Erreur sauvegarde mot de passe PDF:", e);
+        }
+      }
+    },
+    [pin, setPdfPassword],
+  );
 
   const {
     files,
@@ -68,7 +114,10 @@ const Home: React.FC = () => {
     resetStatuses,
     handleProcessPDF,
     handleProcessAll,
-  } = useFileProcessing(refreshAnalyses, pin, pdfPassword);
+    pendingPasswordFile,
+    retryWithPassword,
+    cancelPasswordRequest,
+  } = useFileProcessing(refreshAnalyses, pin, pdfPassword, updatePdfPassword);
 
   const onDeleteAllFiles = () => {
     handleDeleteAllFiles();
@@ -87,47 +136,95 @@ const Home: React.FC = () => {
       maxWidth="lg"
       sx={{ py: { xs: 2, sm: 4 }, px: { xs: 1, sm: 3 } }}
     >
-      <Box
-        sx={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "flex-start",
-          mb: { xs: 2, sm: 4 },
-        }}
-      >
-        <Box sx={{ flex: 1, textAlign: "center" }}>
-          <Typography
-            variant={isMobile ? "h4" : "h3"}
-            sx={{
-              mb: { xs: 1, sm: 2 },
-              fontWeight: "bold",
-              fontSize: { xs: "1.6rem", sm: "2.2rem", md: "3rem" },
-            }}
-          >
-            Bio Analysis
-          </Typography>
-          <Typography
-            variant="body1"
-            color="textSecondary"
-            sx={{
-              fontSize: { xs: "0.85rem", sm: "1rem" },
-              px: { xs: 1, sm: 0 },
-            }}
-          >
-            Importez vos fichiers PDF de résultats biologiques et suivez
-            l'évolution de votre santé
-          </Typography>
+      <Box sx={{ mb: { xs: 2, sm: 4 } }}>
+        {/* Mobile: logo à gauche + icônes à droite | Desktop: tout en ligne */}
+        <Box
+          sx={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          <Box sx={{ display: "flex", alignItems: "center" }}>
+            <img
+              src="/Logo-bio-analysis.png"
+              alt="Bio Analysis"
+              style={{ height: isMobile ? 100 : 200, width: "auto" }}
+            />
+          </Box>
+
+          {/* Titre + description : visible uniquement sur desktop dans cette ligne */}
+          {!isMobile && (
+            <Box sx={{ flex: 1, textAlign: "center" }}>
+              <Typography
+                variant="h3"
+                sx={{
+                  mb: 2,
+                  fontWeight: "bold",
+                  fontSize: { sm: "2.2rem", md: "3rem" },
+                }}
+              >
+                Bio Analysis
+              </Typography>
+              <Typography variant="body1" color="textSecondary">
+                Importez vos fichiers PDF de résultats biologiques et suivez
+                l'évolution de votre santé
+              </Typography>
+            </Box>
+          )}
+
+          {/* Icônes toujours visibles à droite */}
+          <Box sx={{ display: "flex", alignItems: "center" }}>
+            <Tooltip title={mode === "dark" ? "Mode clair" : "Mode sombre"}>
+              <IconButton onClick={toggleMode}>
+                {mode === "dark" ? <LightModeIcon /> : <DarkModeIcon />}
+              </IconButton>
+            </Tooltip>
+            <Tooltip
+              title={
+                hasPdfPassword
+                  ? "Modifier le mot de passe PDF"
+                  : "Définir le mot de passe PDF"
+              }
+            >
+              <IconButton
+                onClick={() => setShowPasswordDialog(true)}
+                color={hasPdfPassword ? "default" : "warning"}
+              >
+                <VpnKeyIcon />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Verrouiller">
+              <IconButton onClick={lock}>
+                <LockIcon />
+              </IconButton>
+            </Tooltip>
+          </Box>
         </Box>
-        <Tooltip title={mode === "dark" ? "Mode clair" : "Mode sombre"}>
-          <IconButton onClick={toggleMode} sx={{ mt: { xs: 0, sm: 1 } }}>
-            {mode === "dark" ? <LightModeIcon /> : <DarkModeIcon />}
-          </IconButton>
-        </Tooltip>
-        <Tooltip title="Verrouiller">
-          <IconButton onClick={lock} sx={{ mt: { xs: 0, sm: 1 } }}>
-            <LockIcon />
-          </IconButton>
-        </Tooltip>
+
+        {/* Mobile : titre + description sous la barre logo/icônes */}
+        {isMobile && (
+          <Box sx={{ textAlign: "center", mt: 1.5 }}>
+            <Typography
+              variant="h4"
+              sx={{
+                mb: 0.5,
+                fontWeight: "bold",
+                fontSize: "1.6rem",
+              }}
+            >
+              Bio Analysis
+            </Typography>
+            <Typography
+              variant="body1"
+              color="textSecondary"
+              sx={{ fontSize: "0.85rem", px: 1 }}
+            >
+              Importez vos fichiers PDF de résultats biologiques et suivez
+              l'évolution de votre santé
+            </Typography>
+          </Box>
+        )}
       </Box>
 
       <Tabs
@@ -171,6 +268,18 @@ const Home: React.FC = () => {
         />
       </Tabs>
 
+      {/* Welcome Guide modal — blocks UI until completed */}
+      <WelcomeGuide
+        open={showWelcomeGuide}
+        onComplete={(password?: string) => {
+          if (password) {
+            updatePdfPassword(password);
+          }
+          localStorage.setItem(WELCOME_GUIDE_KEY, "1");
+          setShowWelcomeGuide(false);
+        }}
+      />
+
       <TabPanel value={tabValue} index={0}>
         <ImportTab
           files={files}
@@ -186,6 +295,7 @@ const Home: React.FC = () => {
       </TabPanel>
 
       <TabPanel value={tabValue} index={1}>
+        <ExportImportSection onImportComplete={refreshAnalyses} />
         <AnalysesTab
           analyses={analyses}
           displayedAnalyses={displayedAnalyses}
@@ -196,7 +306,6 @@ const Home: React.FC = () => {
           onDeleteAnalysis={handleDeleteAnalysis}
           onDeleteAllAnalyses={handleDeleteAllAnalyses}
         />
-        <ExportImportSection onImportComplete={refreshAnalyses} />
       </TabPanel>
 
       <TabPanel value={tabValue} index={2}>
@@ -232,6 +341,39 @@ const Home: React.FC = () => {
           {notification?.message}
         </Alert>
       </Snackbar>
+
+      {/* Dialog demandée automatiquement quand un PDF protégé est détecté */}
+      <PdfPasswordDialog
+        open={!!pendingPasswordFile}
+        fileName={pendingPasswordFile}
+        onConfirm={retryWithPassword}
+        onCancel={cancelPasswordRequest}
+      />
+
+      {/* Dialog manuelle pour définir/changer le mot de passe PDF */}
+      <PdfPasswordDialog
+        open={showPasswordDialog}
+        fileName={null}
+        onConfirm={(pw) => {
+          updatePdfPassword(pw);
+          setShowPasswordDialog(false);
+        }}
+        onCancel={() => setShowPasswordDialog(false)}
+      />
+
+      <Zoom in={showScrollTop}>
+        <Fab
+          onClick={scrollToTop}
+          size="medium"
+          color="primary"
+          aria-label="Retour en haut"
+          sx={{ position: "fixed", bottom: 32, right: 32, zIndex: 1300 }}
+        >
+          <KeyboardArrowUpIcon />
+        </Fab>
+      </Zoom>
+
+      <InstallPromptBanner />
     </Container>
   );
 };

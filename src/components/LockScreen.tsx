@@ -22,7 +22,11 @@ import {
 } from "@mui/icons-material";
 import { useAuth } from "../contexts/AuthContext";
 import { usePdfPassword } from "../contexts/PdfPasswordContext";
-import { migrateToEncryptedStorage } from "../services/encryptedStorage";
+import {
+  migrateToEncryptedStorage,
+  savePdfPasswordEncrypted,
+  loadPdfPasswordEncrypted,
+} from "../services/encryptedStorage";
 import { PATIENT_ID } from "../constants";
 
 const MIN_PIN_LENGTH = 4;
@@ -61,6 +65,10 @@ const LockScreen: React.FC = () => {
       await createPin(input);
       // Stocker le mot de passe PDF en mémoire
       setPdfPassword(pdfPwdInput);
+      // Sauvegarder le mot de passe PDF chiffré si fourni
+      if (pdfPwdInput) {
+        await savePdfPasswordEncrypted(pdfPwdInput, input);
+      }
       // Migrer les données existantes non chiffrées vers le store chiffré
       await migrateToEncryptedStorage(input, PATIENT_ID);
     } catch {
@@ -81,7 +89,15 @@ const LockScreen: React.FC = () => {
     try {
       const success = await unlock(input);
       if (success) {
-        setPdfPassword(pdfPwdInput);
+        // Charger le mot de passe PDF sauvegardé (chiffré)
+        const savedPdfPwd = await loadPdfPasswordEncrypted(input);
+        // Priorité : saisie manuelle > mot de passe sauvegardé
+        const effectivePwd = pdfPwdInput || savedPdfPwd || "";
+        setPdfPassword(effectivePwd);
+        // Si l'utilisateur a saisi un nouveau mdp, le persister
+        if (pdfPwdInput && pdfPwdInput !== savedPdfPwd) {
+          await savePdfPasswordEncrypted(pdfPwdInput, input);
+        }
       } else {
         setError("PIN incorrect.");
         setInput("");
@@ -216,9 +232,20 @@ const LockScreen: React.FC = () => {
           endIcon={showPdfPwd ? <ExpandLessIcon /> : <ExpandMoreIcon />}
           sx={{ mb: 1, textTransform: "none" }}
         >
-          Mot de passe PDF (optionnel)
+          Mot de passe PDF
         </Button>
         <Collapse in={showPdfPwd}>
+          <Alert severity="info" sx={{ mb: 2, textAlign: "left" }}>
+            <Typography variant="caption">
+              Si vos résultats de laboratoire sont protégés par un mot de passe,
+              saisissez-le ici. C'est souvent votre{" "}
+              <strong>date de naissance</strong> au format{" "}
+              <strong>JJMMAAAA</strong> (ex. : 15031990).
+              <br />
+              Ce mot de passe sera sauvegardé de manière chiffrée avec votre
+              PIN. Vous pourrez aussi le définir plus tard depuis l'application.
+            </Typography>
+          </Alert>
           <TextField
             fullWidth
             type={showPassword ? "text" : "password"}
@@ -227,7 +254,8 @@ const LockScreen: React.FC = () => {
             onChange={(e) => setPdfPwdInput(e.target.value)}
             onKeyDown={handleKeyDown}
             disabled={loading}
-            helperText="Pour déchiffrer vos PDF protégés. Non enregistré."
+            placeholder="Ex. : 15031990"
+            helperText="Pour déchiffrer vos PDF protégés. Enregistré de manière chiffrée avec votre PIN."
             sx={{ mb: 2 }}
           />
         </Collapse>

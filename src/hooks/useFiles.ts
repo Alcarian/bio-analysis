@@ -73,9 +73,14 @@ export const useFiles = (): UseFilesReturn => {
 
     if (toSave.length > 0) {
       if (pin) {
-        await Promise.all(toSave.map((file) => saveFileEncrypted(file, pin)));
+        // Sauvegarder séquentiellement pour éviter les race conditions sur l'index chiffré
+        for (const file of toSave) {
+          await saveFileEncrypted(file, pin);
+        }
       } else {
-        await Promise.all(toSave.map((file) => saveFileToStorage(file)));
+        for (const file of toSave) {
+          await saveFileToStorage(file);
+        }
       }
       await refreshFiles();
     }

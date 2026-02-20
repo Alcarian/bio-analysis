@@ -4,9 +4,9 @@
   "description": "Importez vos résultats biologiques PDF et suivez l'évolution de votre santé. 100% hors ligne, aucune donnée envoyée sur internet.",
   "icons": [
     {
-      "src": "favicon.ico",
+      "src": "favicon.png",
       "sizes": "64x64 32x32 24x24 16x16",
-      "type": "image/x-icon"
+      "type": "image/png"
     },
     {
       "src": "logo192.png",
