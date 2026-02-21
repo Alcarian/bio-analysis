@@ -494,6 +494,11 @@ export const extractPDFText = async (
   const pdf = await pdfjsLib.getDocument({
     data: arrayBuffer,
     password: pdfPassword,
+    // Désactive les requêtes réseau pendant le parsing (chargement déjà en mémoire).
+    // Essentiel pour le fonctionnement hors ligne.
+    disableRange: true,
+    disableStream: true,
+    disableAutoFetch: true,
   }).promise;
 
   if (isDev) console.log(`📄 ${pdf.numPages} page(s) détectée(s)`);

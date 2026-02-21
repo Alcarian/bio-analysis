@@ -3,14 +3,31 @@
 // This service worker uses a cache-first strategy for static assets
 // and network-first for navigation requests (HTML).
 
-const CACHE_NAME = "bio-analysis-v2";
+const CACHE_NAME = "bio-analysis-v3";
+
+// Assets critiques avec des noms stables (sans hash) à pré-cacher dès l'installation.
+// Cela garantit leur disponibilité hors ligne même si l'utilisateur
+// n'a jamais utilisé ces fonctionnalités en ligne auparavant.
+const PRECACHE_URLS = [
+  "./", // index.html (alias racine)
+  "./index.html",
+  "./pdf.worker.min.mjs", // worker PDF.js — chargé seulement lors du 1er PDF
+];
 
 // Install event — ne PAS appeler skipWaiting() automatiquement.
 // On attend le message SKIP_WAITING envoyé par l'utilisateur.
 self.addEventListener("install", (event) => {
-  // On ne précache plus d'URLs absolues (incompatibles avec les sous-chemins GitHub Pages).
-  // Les assets seront mis en cache dynamiquement via le fetch handler.
-  event.waitUntil(caches.open(CACHE_NAME));
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => {
+      // Pré-cache les assets critiques à nom stable.
+      // On utilise { cache: 'reload' } pour ignorer le cache HTTP du navigateur.
+      return Promise.allSettled(
+        PRECACHE_URLS.map((url) =>
+          cache.add(new Request(url, { cache: "reload" })),
+        ),
+      );
+    }),
+  );
 });
 
 // Écoute le message SKIP_WAITING envoyé par UpdateBanner
