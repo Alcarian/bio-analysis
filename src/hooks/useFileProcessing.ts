@@ -31,7 +31,7 @@ interface UseFileProcessingReturn {
   handleProcessPDF: (fileName: string) => Promise<void>;
   handleProcessAll: (
     fileNames: string[],
-    onComplete: () => void,
+    onComplete: (hasSuccess: boolean) => void,
   ) => Promise<void>;
   /** Nom du fichier en attente de mot de passe (null = pas de demande) */
   pendingPasswordFile: string | null;
@@ -174,11 +174,17 @@ export const useFileProcessing = (
       // Détection d'extraction vide (format non reconnu ou PDF vide)
       if (Object.keys(biochemistryData).length === 0) {
         setFileStatuses((prev) => ({ ...prev, [fileName]: "error" }));
-        if (!silent)
+        if (!silent) {
+          const skipped = pdfData.skippedLines;
+          const skippedMsg =
+            skipped.length > 0
+              ? `\nLignes ignorées (non reconnues) : ${skipped.map((s) => `${s.name} (${s.value} ${s.unit})`).join(", ")}`
+              : "";
           setNotification({
-            message: `Aucune donnée extraite de « ${fileName} » — format non reconnu ou PDF vide.`,
+            message: `Aucune donnée extraite de « ${fileName} » — format non reconnu ou PDF vide.${skippedMsg}`,
             severity: "warning",
           });
+        }
         return false;
       }
 
@@ -210,11 +216,17 @@ export const useFileProcessing = (
       }
       setFileStatuses((prev) => ({ ...prev, [fileName]: "done" }));
       refreshAnalyses();
-      if (!silent)
+      if (!silent) {
+        const skipped = pdfData.skippedLines;
+        const skippedMsg =
+          skipped.length > 0
+            ? `\nLignes ignorées (non reconnues) : ${skipped.map((s) => s.name).join(", ")}`
+            : "";
         setNotification({
-          message: `« ${fileName} » analysé avec succès.`,
-          severity: "success",
+          message: `« ${fileName} » analysé avec succès.${skippedMsg}`,
+          severity: skipped.length > 0 ? "info" : "success",
         });
+      }
       return true;
     } catch (error) {
       console.error("Erreur lors du traitement du PDF:", error);
@@ -233,7 +245,7 @@ export const useFileProcessing = (
 
   const handleProcessAll = async (
     fileNames: string[],
-    onComplete: () => void,
+    onComplete: (hasSuccess: boolean) => void,
   ) => {
     const pending = fileNames.filter((name) => fileStatuses[name] !== "done");
     if (pending.length === 0) {
@@ -271,7 +283,7 @@ export const useFileProcessing = (
       });
     }
 
-    onComplete();
+    onComplete(successCount > 0);
   };
 
   return {

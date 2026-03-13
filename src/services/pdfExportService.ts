@@ -2,7 +2,7 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { PatientAnalysis } from "../types";
 import { getAnomalySummary } from "./biochemistryAnalyzer";
-import { getDeviationLabel, getReferenceDisplay } from "../utils/analysisUtils";
+import { getReferenceDisplay } from "../utils/analysisUtils";
 
 /**
  * Remplace les caractères Unicode hors Latin-1 par leurs équivalents ASCII.
@@ -122,16 +122,13 @@ export const exportAnalysisPdf = (
 
   const tableData = Object.entries(analysis.biochemistryData).map(
     ([testName, value]) => {
-      const deviationLabel = getDeviationLabel(value);
       const referenceDisplay = getReferenceDisplay(value);
       const statusText = value.isAbnormal ? "Anormal" : "OK";
 
       return [
         sanitize(testName),
         sanitize(`${value.value} ${value.unit}`),
-        sanitize(
-          referenceDisplay + (deviationLabel ? ` (${deviationLabel})` : ""),
-        ),
+        sanitize(referenceDisplay),
         statusText,
       ];
     },

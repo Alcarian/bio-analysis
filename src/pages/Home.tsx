@@ -127,7 +127,9 @@ const Home: React.FC = () => {
   const onProcessAll = () => {
     handleProcessAll(
       files.map((f) => f.name),
-      () => setTabValue(1),
+      (hasSuccess) => {
+        if (hasSuccess) setTabValue(1);
+      },
     );
   };
 
@@ -329,14 +331,20 @@ const Home: React.FC = () => {
 
       <Snackbar
         open={!!notification}
-        autoHideDuration={notification?.severity === "error" ? 8000 : 5000}
+        autoHideDuration={
+          notification?.severity === "error"
+            ? 8000
+            : notification?.message?.includes("Lignes ignorées")
+              ? 10000
+              : 5000
+        }
         onClose={clearNotification}
         anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
       >
         <Alert
           onClose={clearNotification}
           severity={notification?.severity ?? "info"}
-          sx={{ width: "100%" }}
+          sx={{ width: "100%", whiteSpace: "pre-line" }}
         >
           {notification?.message}
         </Alert>

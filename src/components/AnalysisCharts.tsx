@@ -2,8 +2,6 @@ import React, { useMemo, useState } from "react";
 import {
   LineChart,
   Line,
-  BarChart,
-  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -33,11 +31,6 @@ import { parseDate } from "../utils/dateUtils";
 interface AnalysisChartsProps {
   patientId: string;
   analyses: PatientAnalysis[];
-}
-
-interface AbnormalityChartData {
-  date: string;
-  abnormalCount: number;
 }
 
 interface TestTrendData {
@@ -293,65 +286,6 @@ const TestTrendChart: React.FC<{
 };
 
 /**
- * Affiche le nombre d'anomalies au fil du temps
- */
-const AbnormalityTrendChart: React.FC<{
-  data: AbnormalityChartData[];
-}> = ({ data }) => {
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
-
-  if (data.length === 0) {
-    return null;
-  }
-
-  return (
-    <Card sx={{ mb: 3 }}>
-      <CardContent sx={{ px: { xs: 1, sm: 3 }, py: { xs: 1.5, sm: 2 } }}>
-        <Typography
-          variant="h6"
-          sx={{ mb: 2, fontSize: { xs: "0.95rem", sm: "1.25rem" } }}
-        >
-          Évolution du nombre d'anomalies
-        </Typography>
-        <ResponsiveContainer width="100%" height={200}>
-          <BarChart
-            data={data}
-            margin={{
-              left: isMobile ? 5 : 0,
-              right: isMobile ? 5 : 10,
-              top: 5,
-              bottom: isMobile ? 10 : 5,
-            }}
-          >
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis
-              dataKey="date"
-              tick={{ fontSize: isMobile ? 9 : 11 }}
-              angle={isMobile ? -45 : -30}
-              textAnchor="end"
-              height={isMobile ? 60 : 50}
-              interval={data.length <= 6 ? 0 : Math.ceil(data.length / 6) - 1}
-            />
-            <YAxis
-              tick={{ fontSize: isMobile ? 9 : 11 }}
-              width={isMobile ? 30 : 35}
-            />
-            <Tooltip content={<CustomTooltip valueLabel="Anomalies" />} />
-            <Legend wrapperStyle={{ fontSize: 12 }} />
-            <Bar
-              dataKey="abnormalCount"
-              fill="#ff7300"
-              name="Nombre d'anomalies"
-            />
-          </BarChart>
-        </ResponsiveContainer>
-      </CardContent>
-    </Card>
-  );
-};
-
-/**
  * Calcule les données de série temporelle pour un test à partir des analyses déjà chargées
  */
 const computeTestTimeSeries = (
@@ -476,23 +410,6 @@ const AnalysisCharts: React.FC<AnalysisChartsProps> = ({
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
-  const chartData = useMemo(() => {
-    const abnormalities: AbnormalityChartData[] = [];
-
-    analyses.forEach((analysis) => {
-      const abnormalCount = Object.values(analysis.biochemistryData).filter(
-        (v) => v.isAbnormal,
-      ).length;
-      abnormalities.push({
-        date: analysis.date,
-        abnormalCount,
-      });
-    });
-
-    // Tri croissant : date la plus ancienne à gauche
-    return abnormalities.sort((a, b) => parseDate(a.date) - parseDate(b.date));
-  }, [analyses]);
-
   // Collecte tous les noms de tests uniques
   const allTestNames = useMemo(() => {
     const names = new Set<string>();
@@ -559,9 +476,6 @@ const AnalysisCharts: React.FC<AnalysisChartsProps> = ({
       >
         Évolution de la santé du patient
       </Typography>
-
-      {/* Graphique des anomalies */}
-      <AbnormalityTrendChart data={chartData} />
 
       {/* Barre de recherche */}
       <Box sx={{ mb: 2, mt: { xs: 2, sm: 4 } }}>

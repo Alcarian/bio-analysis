@@ -19,7 +19,7 @@ import {
   useTheme,
 } from "@mui/material";
 import { PatientAnalysis } from "../types";
-import { getDeviationLabel, getReferenceDisplay } from "../utils/analysisUtils";
+import { getReferenceDisplay } from "../utils/analysisUtils";
 
 interface AnalysisDetailDialogProps {
   open: boolean;
@@ -98,7 +98,6 @@ const AnalysisDetailDialog: React.FC<AnalysisDetailDialogProps> = ({
               <TableBody>
                 {Object.entries(analysis.biochemistryData).map(
                   ([testName, value]) => {
-                    const deviationLabel = getDeviationLabel(value);
                     const referenceDisplay = getReferenceDisplay(value);
 
                     return (
@@ -139,18 +138,6 @@ const AnalysisDetailDialog: React.FC<AnalysisDetailDialogProps> = ({
                           >
                             {referenceDisplay}
                           </Typography>
-                          {deviationLabel && (
-                            <Typography
-                              variant="caption"
-                              sx={{
-                                display: "block",
-                                color: "error.main",
-                                fontWeight: "bold",
-                              }}
-                            >
-                              {deviationLabel}
-                            </Typography>
-                          )}
                         </TableCell>
                         <TableCell
                           align="center"

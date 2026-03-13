@@ -1,4 +1,9 @@
 import * as pdfjsLib from "pdfjs-dist";
+import {
+  findTestByName,
+  isKnownUnit,
+  normalizeName,
+} from "../constants/labTestDictionary";
 
 // Configuration du worker pour pdf.js
 const workerPath = process.env.PUBLIC_URL
@@ -17,14 +22,25 @@ interface TextItem {
   width: number;
 }
 
+/** Bornes de colonnes détectées dynamiquement */
+interface ColumnLayout {
+  nameEnd: number;
+  valueStart: number;
+  valueEnd: number;
+  unitStart: number;
+  unitEnd: number;
+  rangeStart: number;
+  rangeEnd: number;
+}
+
 /** Ligne logique reconstituée (items groupés par Y) */
 interface LogicalLine {
   y: number;
   items: TextItem[];
-  nameText: string; // x < 270   — nom du test
-  valueText: string; // 270 ≤ x < 325 — valeur numérique
-  unitText: string; // 325 ≤ x < 380 — unité
-  rangeText: string; // 375 ≤ x < 460 — plage de référence
+  nameText: string;
+  valueText: string;
+  unitText: string;
+  rangeText: string;
 }
 
 export interface BiochemistryResult {
@@ -37,6 +53,13 @@ export interface BiochemistryResult {
   normalMax?: number;
 }
 
+/** Ligne candidate rejetée (ressemblait à un résultat mais nom non reconnu) */
+export interface SkippedLine {
+  name: string;
+  value: string;
+  unit: string;
+}
+
 export interface PDFData {
   fileName: string;
   text: string;
@@ -44,6 +67,8 @@ export interface PDFData {
   pages: string[];
   samplingDate?: string;
   biochemistryData: BiochemistryResult[];
+  /** Lignes qui ressemblaient à des résultats mais dont le nom n'est pas dans le dictionnaire */
+  skippedLines: SkippedLine[];
 }
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
@@ -51,15 +76,15 @@ export interface PDFData {
 /** Tolérance Y (en points PDF) pour regrouper les items sur la même ligne */
 const Y_TOLERANCE = 4;
 
-/** Colonnes du tableau Novelab (positions X en points PDF) */
-const COL = {
-  NAME_END: 270,
-  VALUE_START: 270,
-  VALUE_END: 320,
-  UNIT_START: 320,
-  UNIT_END: 380,
-  RANGE_START: 375,
-  RANGE_END: 460,
+/** Colonnes par défaut (Novelab) — utilisées en fallback si la détection échoue */
+const DEFAULT_COL: ColumnLayout = {
+  nameEnd: 270,
+  valueStart: 270,
+  valueEnd: 320,
+  unitStart: 320,
+  unitEnd: 380,
+  rangeStart: 375,
+  rangeEnd: 460,
 };
 
 /** En-têtes de section reconnus (comparés en majuscules, sans accents) */
@@ -73,6 +98,24 @@ const KNOWN_SECTIONS = [
   "IMMUNOLOGIE",
   "MICROBIOLOGIE",
   "COAGULATION",
+  "HEMOSTASE",
+  "ELECTROPHORESE",
+  "ELECTROPHORESE DES PROTEINES",
+  "MARQUEURS TUMORAUX",
+  "BILAN THYROIDIEN",
+  "BILAN HEPATIQUE",
+  "BILAN LIPIDIQUE",
+  "BILAN MARTIAL",
+  "BILAN RENAL",
+  "IONOGRAMME",
+  "GAZOMETRIE",
+  "VITAMINES",
+  "BILAN PHOSPHOCALCIQUE",
+  "AUTO-IMMUNITE",
+  "ALLERGIE",
+  "EXAMENS URINAIRES",
+  "EXAMENS SANGUINS",
+  "EXAMENS TRANSMIS",
 ];
 
 /** Lignes à ignorer (méthodes, notes, classifications…) */
@@ -201,16 +244,118 @@ const parseNumericValue = (text: string): number | null => {
   return isNaN(num) ? null : num;
 };
 
+// ─── Détection dynamique de colonnes ─────────────────────────────────────────
+
+/** En-têtes de colonnes reconnus pour détecter la structure du tableau */
+const COLUMN_HEADER_PATTERNS: {
+  type: "value" | "unit" | "range" | "name";
+  patterns: RegExp[];
+}[] = [
+  {
+    type: "value",
+    patterns: [/^R[ée]sultat/i, /^Valeur/i, /^Dosage/i, /^Résultat\s*$/i],
+  },
+  {
+    type: "unit",
+    patterns: [/^Unit[ée]/i, /^Unité/i],
+  },
+  {
+    type: "range",
+    patterns: [
+      /^Normes?/i,
+      /^R[ée]f[ée]rence/i,
+      /^Val\.\s*r[ée]f/i,
+      /^Valeurs?\s*(de\s*)?r[ée]f/i,
+      /^Intervalle/i,
+    ],
+  },
+  {
+    type: "name",
+    patterns: [
+      /^Analyse/i,
+      /^D[ée]signation/i,
+      /^Examen/i,
+      /^Libell[ée]/i,
+      /^Param[èe]tre/i,
+    ],
+  },
+];
+
+/**
+ * Tente de détecter la disposition des colonnes automatiquement en
+ * cherchant des en-têtes de tableau connus.
+ *
+ * Retourne les bornes X détectées, ou le layout par défaut (Novelab).
+ */
+const detectColumnLayout = (allItems: TextItem[]): ColumnLayout => {
+  const detected: Partial<Record<"value" | "unit" | "range" | "name", number>> =
+    {};
+
+  // Chercher les en-têtes de colonnes dans les items du PDF
+  for (const item of allItems) {
+    const text = item.text.trim();
+    if (!text) continue;
+
+    for (const { type, patterns } of COLUMN_HEADER_PATTERNS) {
+      if (detected[type] !== undefined) continue;
+      for (const pat of patterns) {
+        if (pat.test(text)) {
+          detected[type] = item.x;
+          break;
+        }
+      }
+    }
+
+    // Arrêter si tout est trouvé
+    if (
+      detected.value !== undefined &&
+      detected.unit !== undefined &&
+      detected.range !== undefined
+    ) {
+      break;
+    }
+  }
+
+  // Si au moins « valeur » est détecté, construire un layout dynamique
+  if (detected.value !== undefined) {
+    const valueX = detected.value;
+    const unitX = detected.unit ?? valueX + 50;
+    const rangeX = detected.range ?? unitX + 55;
+    const nameEnd = detected.name !== undefined ? detected.name + 200 : valueX;
+
+    return {
+      nameEnd: Math.max(nameEnd, valueX),
+      valueStart: valueX,
+      valueEnd: unitX,
+      unitStart: unitX,
+      unitEnd: rangeX,
+      rangeStart: rangeX - 5, // petit chevauchement
+      rangeEnd: rangeX + 85,
+    };
+  }
+
+  // Aucun en-tête trouvé → fallback sur les colonnes par défaut Novelab
+  return DEFAULT_COL;
+};
+
 // ─── Extraction principale ───────────────────────────────────────────────────
 
 /**
  * Extrait les éléments texte positionnés de toutes les pages du PDF.
  * Regroupe les items par coordonnée Y (±Y_TOLERANCE) pour reconstituer
  * les lignes logiques du document tabulaire.
+ *
+ * Utilise la détection dynamique de colonnes pour s'adapter à
+ * différents formats de laboratoire.
  */
 const extractPositionedLines = async (
   pdf: pdfjsLib.PDFDocumentProxy,
-): Promise<{ lines: LogicalLine[]; fullText: string; pages: string[] }> => {
+): Promise<{
+  lines: LogicalLine[];
+  fullText: string;
+  pages: string[];
+  layout: ColumnLayout;
+}> => {
   const allItems: TextItem[] = [];
   const pages: string[] = [];
 
@@ -269,24 +414,30 @@ const extractPositionedLines = async (
     }
   });
 
+  // ── Détection dynamique des colonnes ──
+  const layout = detectColumnLayout(allItems);
+
   // Construire les lignes logiques
   const lines: LogicalLine[] = [];
 
   Array.from(groups.entries()).forEach(([y, items]) => {
     const sortedItems = items.sort((a, b) => a.x - b.x);
 
-    // Classifier par colonne
+    // Classifier par colonne (positions dynamiques)
     const nameItems = sortedItems.filter(
-      (it) => it.x < COL.NAME_END && it.text.trim(),
+      (it) => it.x < layout.nameEnd && it.text.trim(),
     );
     const valueItems = sortedItems.filter(
-      (it) => it.x >= COL.VALUE_START && it.x < COL.VALUE_END && it.text.trim(),
+      (it) =>
+        it.x >= layout.valueStart && it.x < layout.valueEnd && it.text.trim(),
     );
     const unitItems = sortedItems.filter(
-      (it) => it.x >= COL.UNIT_START && it.x < COL.UNIT_END && it.text.trim(),
+      (it) =>
+        it.x >= layout.unitStart && it.x < layout.unitEnd && it.text.trim(),
     );
     const rangeItems = sortedItems.filter(
-      (it) => it.x >= COL.RANGE_START && it.x < COL.RANGE_END && it.text.trim(),
+      (it) =>
+        it.x >= layout.rangeStart && it.x < layout.rangeEnd && it.text.trim(),
     );
 
     lines.push({
@@ -319,7 +470,7 @@ const extractPositionedLines = async (
   const finIdx = fullText.indexOf("*** FIN DU COMPTE RENDU ***");
   if (finIdx !== -1) fullText = fullText.substring(0, finIdx).trim();
 
-  return { lines, fullText, pages };
+  return { lines, fullText, pages, layout };
 };
 
 /**
@@ -368,21 +519,23 @@ const extractSamplingDate = (lines: LogicalLine[]): string | undefined => {
  * Extrait tous les résultats d'analyses (toutes sections confondues)
  * depuis les lignes logiques positionnées.
  */
-const extractAllResults = (lines: LogicalLine[]): BiochemistryResult[] => {
+const extractAllResults = (
+  lines: LogicalLine[],
+): { results: BiochemistryResult[]; skippedLines: SkippedLine[] } => {
   const results: BiochemistryResult[] = [];
+  const skippedLines: SkippedLine[] = [];
   let currentSection = "GÉNÉRAL";
   let lastTestName = "";
-  let reachedEnd = false;
 
   for (const line of lines) {
-    if (reachedEnd) break;
-
     const nameText = line.nameText;
 
-    // Détection fin du compte rendu
+    // D\u00e9tection fin du compte rendu \u2014 ne pas stopper, juste r\u00e9initialiser la section
+    // (les PDF multi-laboratoire peuvent avoir un \"*** FIN ***\" suivi d'analyses
+    // transmises par un autre labo sur les pages suivantes)
     if (nameText.includes("*** FIN DU COMPTE RENDU ***")) {
-      reachedEnd = true;
-      break;
+      currentSection = "G\u00c9N\u00c9RAL";
+      continue;
     }
 
     // Détection en-tête de section
@@ -448,6 +601,21 @@ const extractAllResults = (lines: LogicalLine[]): BiochemistryResult[] => {
 
     if (!testName) continue;
 
+    // ── Canonicaliser le nom via le dictionnaire ──
+    const dictEntry = findTestByName(testName);
+    if (dictEntry) {
+      testName = dictEntry.canonicalName;
+    } else {
+      // Le test n'est pas reconnu dans le dictionnaire → ignorer
+      // pour éviter les faux positifs (ex: texte d'un PDF de dépistage drogue)
+      skippedLines.push({
+        name: testName,
+        value: line.valueText,
+        unit: line.unitText,
+      });
+      continue;
+    }
+
     // Ignorer les doublons de conversion (ex: ligne secondaire g/l sous mmol/l)
     // Détection : pas de nom de test (juste valeur + unité) et ligne très proche
     // du test précédent → déjà géré par l'absence de ":" dans nameText
@@ -475,6 +643,132 @@ const extractAllResults = (lines: LogicalLine[]): BiochemistryResult[] => {
     }
   }
 
+  return { results, skippedLines };
+};
+
+// ─── Passe regex de rattrapage ───────────────────────────────────────────────
+
+/**
+ * Regex qui capture une ligne d'analyse typique dans du texte brut :
+ *   NOM_DU_TEST  VALEUR  UNITÉ  [PLAGE]
+ *
+ * Groupes :
+ *   1 → nom du test (lettres, espaces, accents, parenthèses…)
+ *   2 → valeur numérique (éventuellement précédée de > ou <)
+ *   3 → unité (g/L, mmol/l, µmol/l, %, 10^9 /L …)
+ *   4 → plage normative optionnelle (reste de la ligne)
+ *
+ * Note : le groupe unité est greedy (sans \s) pour capturer l'unité
+ * complète (ex: g/L) avant de s'arrêter à l'espace suivant.
+ */
+const RESULT_LINE_RE =
+  /([A-ZÀ-ÿa-zà-ÿ][\wÀ-ÿà-ÿ\s()/'.°-]{2,}?)\s+([<>]?\s*\d+[.,]?\d*)\s+((?:[a-zA-Zµμ%°/^.*][\w/^.*µμ°%]{0,15})(?:\s*(?:10\s*[³^]\s*\/?\s*[a-zA-Z]+))?)(?:\s+([\d,.<>−\-–\s]+))?/g;
+
+/**
+ * Seconde passe d'extraction : analyse le texte brut page par page
+ * avec des regex pour trouver les résultats que l'extraction positionnelle
+ * aurait pu manquer (format de labo inconnu, colonnes mal détectées, etc.).
+ *
+ * Seuls les résultats dont le nom est reconnu dans le dictionnaire sont retenus,
+ * afin d'éviter les faux positifs.
+ */
+const extractViaRegexFallback = (
+  pages: string[],
+  alreadyFoundNames: Set<string>,
+): BiochemistryResult[] => {
+  const results: BiochemistryResult[] = [];
+  let currentSection = "GÉNÉRAL";
+
+  for (let pageIdx = 0; pageIdx < pages.length; pageIdx++) {
+    let pageText = pages[pageIdx];
+    // \u2500\u2500 Nettoyage du texte brut pour am\u00e9liorer la d\u00e9tection \u2500\u2500
+    // Supprimer les marques d'accr\u00e9ditation (#) et symboles trademark
+    pageText = pageText.replace(/[#\u00ae\u2122\u00a9]/g, " ");
+    // Fusionner les nombres d\u00e9cimaux fragment\u00e9s : "0 , 66" \u2192 "0,66"
+    pageText = pageText.replace(/(\d)\s*,\s*(\d)/g, "$1,$2");
+    // Fusionner les nombres d\u00e9cimaux fragment\u00e9s avec point : "0 . 66" \u2192 "0.66"
+    pageText = pageText.replace(/(\d)\s*\.\s*(\d)/g, "$1.$2");
+    // Supprimer les caract\u00e8res isol\u00e9s parasites entre espaces (ex: " l " stray)
+    pageText = pageText.replace(/\s[a-z]\s(?=\d)/gi, " ");
+    // Normaliser les espaces multiples
+    pageText = pageText.replace(/\s{2,}/g, "  ");
+    // Découper grossièrement en « lignes » (le texte brut est un long string)
+    const tokens = pageText.split(/\s{2,}/);
+
+    // Reconstruire des fragments de ~120 caractères chevauchants pour la regex
+    const chunks: string[] = [];
+    let buf = "";
+    for (const tok of tokens) {
+      buf = buf ? `${buf} ${tok}` : tok;
+      if (buf.length > 100) {
+        chunks.push(buf);
+        buf = "";
+      }
+    }
+    if (buf) chunks.push(buf);
+
+    // Aussi essayer le texte page entier avec des regex ligne par ligne
+    const linesByNewline = pageText.split(/\n/);
+    chunks.push(...linesByNewline);
+
+    for (const chunk of chunks) {
+      // Détection de section
+      const normalizedChunk = removeAccents(chunk.trim()).toUpperCase();
+      if (
+        KNOWN_SECTIONS.some(
+          (s) => normalizedChunk === s || normalizedChunk.startsWith(s),
+        )
+      ) {
+        currentSection = chunk.trim();
+        continue;
+      }
+
+      // Itérer sur TOUS les matches du chunk (pas juste le premier)
+      for (const m of chunk.matchAll(RESULT_LINE_RE)) {
+        const rawName = m[1].trim();
+        const rawValue = m[2].trim();
+        const rawUnit = m[3].trim();
+        const rawRange = m[4]?.trim();
+
+        // Valider le nom contre le dictionnaire
+        const dictEntry = findTestByName(rawName);
+        if (!dictEntry) continue;
+
+        // Ne pas rajouter un test déjà extrait par la passe positionnelle
+        const canonicalNorm = normalizeName(dictEntry.canonicalName);
+        const rawNorm = normalizeName(rawName);
+        if (
+          alreadyFoundNames.has(canonicalNorm) ||
+          alreadyFoundNames.has(rawNorm)
+        )
+          continue;
+
+        // Valider l'unité
+        if (!isKnownUnit(rawUnit)) continue;
+
+        const numericValue = parseNumericValue(rawValue);
+        if (numericValue === null) continue;
+
+        let rangeInfo: ReturnType<typeof parseRange> | undefined;
+        if (rawRange) {
+          rangeInfo = parseRange(rawRange);
+        }
+
+        results.push({
+          testName: dictEntry.canonicalName,
+          value: numericValue,
+          unit: rawUnit,
+          section: dictEntry.section ?? currentSection,
+          normalRange: rangeInfo?.normalRange,
+          normalMin: rangeInfo?.normalMin,
+          normalMax: rangeInfo?.normalMax,
+        });
+
+        alreadyFoundNames.add(canonicalNorm);
+      }
+    }
+  }
+
   return results;
 };
 
@@ -484,10 +778,6 @@ export const extractPDFText = async (
   file: File,
   password?: string,
 ): Promise<PDFData> => {
-  const isDev = process.env.NODE_ENV === "development";
-  if (isDev)
-    console.log("🔍 Extraction PDF:", file.name, `(${file.size} octets)`);
-
   const arrayBuffer = await file.arrayBuffer();
   const pdfPassword = password ?? "";
 
@@ -501,48 +791,23 @@ export const extractPDFText = async (
     disableAutoFetch: true,
   }).promise;
 
-  if (isDev) console.log(`📄 ${pdf.numPages} page(s) détectée(s)`);
-
   // 1. Extraire les lignes positionnées
   const { lines, fullText, pages } = await extractPositionedLines(pdf);
-  if (isDev) console.log(`📐 ${lines.length} lignes logiques reconstituées`);
 
   // 2. Extraire la date de prélèvement
   const samplingDate = extractSamplingDate(lines);
-  if (isDev && samplingDate) {
-    console.log("📅 Date de prélèvement:", samplingDate);
-  }
 
-  // 3. Extraire tous les résultats d'analyses
-  const biochemistryData = extractAllResults(lines);
+  // 3. Extraire tous les résultats d'analyses (passe positionnelle)
+  const { results: biochemistryData, skippedLines } = extractAllResults(lines);
 
-  const sections = Array.from(new Set(biochemistryData.map((r) => r.section)));
+  // 4. Passe regex de rattrapage : chercher les résultats manqués
+  const alreadyFoundNames = new Set(
+    biochemistryData.map((r) => normalizeName(r.testName)),
+  );
+  const fallbackResults = extractViaRegexFallback(pages, alreadyFoundNames);
 
-  if (isDev) {
-    console.log(
-      `✅ ${biochemistryData.length} paramètre(s) extrait(s) dans ${sections.length} section(s)`,
-    );
-
-    // Log détaillé par section (dev uniquement)
-    sections.forEach((section) => {
-      const sectionResults = biochemistryData.filter(
-        (r) => r.section === section,
-      );
-      console.log(`\n📋 ${section} (${sectionResults.length} tests):`);
-      sectionResults.forEach((r) => {
-        const status =
-          r.normalMax !== undefined && r.value > r.normalMax
-            ? "🔴 ÉLEVÉ"
-            : r.normalMin !== undefined && r.value < r.normalMin
-              ? "🔵 BAS"
-              : "🟢";
-        console.log(
-          `  ${status} ${r.testName} = ${r.value} ${r.unit}` +
-            (r.normalRange ? ` (réf: ${r.normalRange})` : ""),
-        );
-      });
-    });
-  }
+  // Fusionner les résultats
+  const allResults = [...biochemistryData, ...fallbackResults];
 
   return {
     fileName: file.name,
@@ -550,6 +815,7 @@ export const extractPDFText = async (
     pageCount: pdf.numPages,
     pages,
     samplingDate,
-    biochemistryData,
+    biochemistryData: allResults,
+    skippedLines,
   };
 };
