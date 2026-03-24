@@ -20,7 +20,7 @@ const sanitize = (str: string): string =>
     .replace(/\u2713|\u2714/g, "OK") // ✓ ✔
     .replace(/\u26A0[^\s]*/g, "!") // ⚠ (+ éventuels modificateurs emoji)
     .replace(/\u26A0/g, "!") // ⚠ seul
-    .replace(/[^\x00-\xFF]/g, "?"); // tout autre caractère hors Latin-1
+    .replace(/[^\x20-\xFF]/g, "?"); // tout autre caractère hors Latin-1 imprimable
 
 /**
  * Génère et télécharge un PDF contenant le tableau des résultats d'analyse.

@@ -273,7 +273,7 @@ export const useFileProcessing = (
       });
     } else if (successCount === 0) {
       setNotification({
-        message: `Échec de toutes les analyses (${errorCount} fichier${plural(errorCount)} en erreur). Vérifiez le format de vos PDF.`,
+        message: `Échec de toutes les analyses (${errorCount} fichier${plural(errorCount)} en erreur). Vérifiez le format de vos PDF.\nConsultez la console du navigateur (F12) pour plus de détails.`,
         severity: "error",
       });
     } else {

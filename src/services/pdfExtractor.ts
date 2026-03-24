@@ -283,60 +283,139 @@ const COLUMN_HEADER_PATTERNS: {
 
 /**
  * Tente de détecter la disposition des colonnes automatiquement en
- * cherchant des en-têtes de tableau connus.
+ * cherchant des en-têtes de tableau connus **situés sur la même ligne**.
+ *
+ * Pour éviter les faux positifs (mots comme « Résultat » dans le texte
+ * courant), on regroupe les candidats par coordonnée Y et on ne retient
+ * que le groupe qui contient au moins 2 types d'en-têtes distincts.
  *
  * Retourne les bornes X détectées, ou le layout par défaut (Novelab).
  */
 const detectColumnLayout = (allItems: TextItem[]): ColumnLayout => {
-  const detected: Partial<Record<"value" | "unit" | "range" | "name", number>> =
-    {};
+  // 1. Collecter TOUS les candidats avec leur position Y
+  interface HeaderCandidate {
+    type: "value" | "unit" | "range" | "name";
+    x: number;
+    y: number;
+  }
+  const candidates: HeaderCandidate[] = [];
 
-  // Chercher les en-têtes de colonnes dans les items du PDF
   for (const item of allItems) {
     const text = item.text.trim();
     if (!text) continue;
 
     for (const { type, patterns } of COLUMN_HEADER_PATTERNS) {
-      if (detected[type] !== undefined) continue;
       for (const pat of patterns) {
         if (pat.test(text)) {
-          detected[type] = item.x;
+          candidates.push({ type, x: item.x, y: item.y });
           break;
         }
       }
     }
+  }
 
-    // Arrêter si tout est trouvé
-    if (
-      detected.value !== undefined &&
-      detected.unit !== undefined &&
-      detected.range !== undefined
-    ) {
-      break;
+  // 2. Regrouper les candidats par ligne (Y ± tolérance)
+  const groups: HeaderCandidate[][] = [];
+  for (const c of candidates) {
+    let added = false;
+    for (const group of groups) {
+      if (Math.abs(group[0].y - c.y) <= Y_TOLERANCE) {
+        group.push(c);
+        added = true;
+        break;
+      }
+    }
+    if (!added) groups.push([c]);
+  }
+
+  // 3. Trouver le groupe avec le plus de types distincts
+  let bestGroup: HeaderCandidate[] | null = null;
+  let bestTypeCount = 0;
+  for (const group of groups) {
+    const types = new Set(group.map((c) => c.type));
+    if (types.size > bestTypeCount) {
+      bestTypeCount = types.size;
+      bestGroup = group;
     }
   }
 
-  // Si au moins « valeur » est détecté, construire un layout dynamique
-  if (detected.value !== undefined) {
-    const valueX = detected.value;
-    const unitX = detected.unit ?? valueX + 50;
-    const rangeX = detected.range ?? unitX + 55;
-    const nameEnd = detected.name !== undefined ? detected.name + 200 : valueX;
+  // 4. Exiger au moins 2 types distincts pour valider la détection
+  if (bestGroup && bestTypeCount >= 2) {
+    const detected: Partial<
+      Record<"value" | "unit" | "range" | "name", number>
+    > = {};
+    for (const c of bestGroup) {
+      if (detected[c.type] === undefined) detected[c.type] = c.x;
+    }
 
-    return {
-      nameEnd: Math.max(nameEnd, valueX),
-      valueStart: valueX,
-      valueEnd: unitX,
-      unitStart: unitX,
-      unitEnd: rangeX,
-      rangeStart: rangeX - 5, // petit chevauchement
-      rangeEnd: rangeX + 85,
-    };
+    if (detected.value !== undefined) {
+      const valueX = detected.value;
+      const unitX = detected.unit ?? valueX + 50;
+      const rangeX = detected.range ?? unitX + 55;
+      const nameEnd =
+        detected.name !== undefined ? detected.name + 200 : valueX;
+
+      return {
+        nameEnd: Math.max(nameEnd, valueX),
+        valueStart: valueX,
+        valueEnd: unitX,
+        unitStart: unitX,
+        unitEnd: rangeX,
+        rangeStart: rangeX - 5, // petit chevauchement
+        rangeEnd: rangeX + 85,
+      };
+    }
   }
 
-  // Aucun en-tête trouvé → fallback sur les colonnes par défaut Novelab
+  // Aucun en-tête fiable trouvé → fallback sur les colonnes par défaut Novelab
   return DEFAULT_COL;
 };
+
+/**
+ * Reclassifie les items d'une ligne logique avec un nouveau layout de colonnes.
+ * Permet de réessayer l'extraction avec des bornes différentes sans relire le PDF.
+ */
+const reclassifyLines = (
+  lines: LogicalLine[],
+  layout: ColumnLayout,
+): LogicalLine[] =>
+  lines.map((line) => {
+    const sortedItems = line.items;
+    const nameItems = sortedItems.filter(
+      (it) => it.x < layout.nameEnd && it.text.trim(),
+    );
+    const valueItems = sortedItems.filter(
+      (it) =>
+        it.x >= layout.valueStart && it.x < layout.valueEnd && it.text.trim(),
+    );
+    const unitItems = sortedItems.filter(
+      (it) =>
+        it.x >= layout.unitStart && it.x < layout.unitEnd && it.text.trim(),
+    );
+    const rangeItems = sortedItems.filter(
+      (it) =>
+        it.x >= layout.rangeStart && it.x < layout.rangeEnd && it.text.trim(),
+    );
+    return {
+      ...line,
+      nameText: nameItems
+        .map((it) => it.text.trim())
+        .join(" ")
+        .trim(),
+      valueText: valueItems
+        .map((it) => it.text.trim())
+        .join(" ")
+        .trim(),
+      unitText: unitItems
+        .map((it) => it.text.trim())
+        .join(" ")
+        .trim(),
+      rangeText: rangeItems
+        .map((it) => it.text.trim())
+        .join(" ")
+        .trim(),
+    };
+  });
 
 // ─── Extraction principale ───────────────────────────────────────────────────
 
@@ -792,13 +871,31 @@ export const extractPDFText = async (
   }).promise;
 
   // 1. Extraire les lignes positionnées
-  const { lines, fullText, pages } = await extractPositionedLines(pdf);
+  const { lines, fullText, pages, layout } = await extractPositionedLines(pdf);
 
   // 2. Extraire la date de prélèvement
   const samplingDate = extractSamplingDate(lines);
 
   // 3. Extraire tous les résultats d'analyses (passe positionnelle)
-  const { results: biochemistryData, skippedLines } = extractAllResults(lines);
+  let { results: biochemistryData, skippedLines } = extractAllResults(lines);
+
+  // 3b. Si la détection dynamique n'a rien trouvé et que le layout détecté
+  //     est différent du layout Novelab par défaut, réessayer avec le défaut.
+  const isDefaultLayout =
+    layout.nameEnd === DEFAULT_COL.nameEnd &&
+    layout.valueStart === DEFAULT_COL.valueStart;
+  if (biochemistryData.length === 0 && !isDefaultLayout) {
+    console.warn(
+      "[pdfExtractor] Layout détecté n'a donné aucun résultat, retry avec layout Novelab par défaut.",
+      { detected: layout, default: DEFAULT_COL },
+    );
+    const retryLines = reclassifyLines(lines, DEFAULT_COL);
+    const retry = extractAllResults(retryLines);
+    if (retry.results.length > 0) {
+      biochemistryData = retry.results;
+      skippedLines = retry.skippedLines;
+    }
+  }
 
   // 4. Passe regex de rattrapage : chercher les résultats manqués
   const alreadyFoundNames = new Set(
@@ -808,6 +905,22 @@ export const extractPDFText = async (
 
   // Fusionner les résultats
   const allResults = [...biochemistryData, ...fallbackResults];
+
+  // Log de diagnostic quand aucun résultat n'est trouvé
+  if (allResults.length === 0) {
+    console.warn(`[pdfExtractor] Aucun résultat extrait de « ${file.name} ».`, {
+      layout,
+      isDefaultLayout,
+      totalLines: lines.length,
+      skippedLines,
+      sampleLines: lines.slice(0, 10).map((l) => ({
+        name: l.nameText,
+        value: l.valueText,
+        unit: l.unitText,
+        items: l.items.map((it) => ({ text: it.text, x: it.x })),
+      })),
+    });
+  }
 
   return {
     fileName: file.name,
