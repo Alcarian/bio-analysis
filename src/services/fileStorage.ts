@@ -1,7 +1,18 @@
 import localforage from "localforage";
 import { FileItem } from "../types";
+import {
+  isOPFSSupported,
+  opfsSaveFile,
+  opfsGetFile,
+  opfsDeleteFile,
+  opfsClearDir,
+  opfsSaveJSON,
+  opfsGetJSON,
+  OPFS_PDF_DIR,
+} from "./opfsStorage";
 
-// Configuration de l'instance IndexedDB pour les fichiers PDF
+// ─── IndexedDB (fallback si OPFS non supporté) ──────────────────────────────
+
 const fileStore = localforage.createInstance({
   name: "bio-analysis",
   storeName: "pdf_files",
@@ -9,30 +20,34 @@ const fileStore = localforage.createInstance({
 });
 
 const FILE_INDEX_KEY = "file_index";
+const OPFS_INDEX_FILE = "file_index.json";
 
-/**
- * Récupère l'index des fichiers (métadonnées sans les données binaires)
- */
+// ─── Index (métadonnées) : OPFS si dispo, sinon IndexedDB ───────────────────
+
 const getFileIndex = async (): Promise<FileItem[]> => {
-  const index = await fileStore.getItem<FileItem[]>(FILE_INDEX_KEY);
-  return index || [];
+  if (await isOPFSSupported()) {
+    return (await opfsGetJSON<FileItem[]>(OPFS_PDF_DIR, OPFS_INDEX_FILE)) || [];
+  }
+  return (await fileStore.getItem<FileItem[]>(FILE_INDEX_KEY)) || [];
 };
 
-/**
- * Sauvegarde l'index des fichiers
- */
 const saveFileIndex = async (files: FileItem[]): Promise<void> => {
-  await fileStore.setItem(FILE_INDEX_KEY, files);
+  if (await isOPFSSupported()) {
+    await opfsSaveJSON(OPFS_PDF_DIR, OPFS_INDEX_FILE, files);
+  } else {
+    await fileStore.setItem(FILE_INDEX_KEY, files);
+  }
 };
 
+// ─── CRUD fichiers : OPFS si dispo, sinon IndexedDB ─────────────────────────
+
 /**
- * Sauvegarde un fichier PDF dans IndexedDB
- * Les données binaires sont stockées séparément de l'index pour la performance
+ * Sauvegarde un fichier PDF (OPFS ou IndexedDB).
  */
 export const saveFileToStorage = async (file: File): Promise<void> => {
   const arrayBuffer = await file.arrayBuffer();
-
   const files = await getFileIndex();
+
   const newFile: FileItem = {
     id: Date.now().toString(),
     name: file.name,
@@ -41,8 +56,11 @@ export const saveFileToStorage = async (file: File): Promise<void> => {
     lastModified: file.lastModified,
   };
 
-  // Stocker les données binaires séparément (pas de conversion base64)
-  await fileStore.setItem(`file_data_${newFile.id}`, arrayBuffer);
+  if (await isOPFSSupported()) {
+    await opfsSaveFile(OPFS_PDF_DIR, `file_data_${newFile.id}`, arrayBuffer);
+  } else {
+    await fileStore.setItem(`file_data_${newFile.id}`, arrayBuffer);
+  }
 
   files.push(newFile);
   await saveFileIndex(files);
@@ -65,7 +83,11 @@ export const deleteFileFromStorage = async (
   const fileToDelete = files.find((f) => f.name === fileName);
 
   if (fileToDelete) {
-    await fileStore.removeItem(`file_data_${fileToDelete.id}`);
+    if (await isOPFSSupported()) {
+      await opfsDeleteFile(OPFS_PDF_DIR, `file_data_${fileToDelete.id}`);
+    } else {
+      await fileStore.removeItem(`file_data_${fileToDelete.id}`);
+    }
   }
 
   const filtered = files.filter((f) => f.name !== fileName);
@@ -76,7 +98,11 @@ export const deleteFileFromStorage = async (
  * Supprime tous les fichiers
  */
 export const deleteAllFilesFromStorage = async (): Promise<void> => {
-  await fileStore.clear();
+  if (await isOPFSSupported()) {
+    await opfsClearDir(OPFS_PDF_DIR);
+  } else {
+    await fileStore.clear();
+  }
 };
 
 /**
@@ -93,19 +119,23 @@ export const isFileDuplicate = async (file: File): Promise<boolean> => {
 };
 
 /**
- * Récupère un fichier complet (avec données) depuis IndexedDB
+ * Récupère un fichier complet (avec données)
  */
 export const getFileFromStorage = async (
   fileName: string,
 ): Promise<File | null> => {
   const files = await getFileIndex();
   const fileData = files.find((f) => f.name === fileName);
-
   if (!fileData) return null;
 
-  const arrayBuffer = await fileStore.getItem<ArrayBuffer>(
-    `file_data_${fileData.id}`,
-  );
+  let arrayBuffer: ArrayBuffer | null;
+  if (await isOPFSSupported()) {
+    arrayBuffer = await opfsGetFile(OPFS_PDF_DIR, `file_data_${fileData.id}`);
+  } else {
+    arrayBuffer = await fileStore.getItem<ArrayBuffer>(
+      `file_data_${fileData.id}`,
+    );
+  }
   if (!arrayBuffer) return null;
 
   return new File([arrayBuffer], fileData.name, { type: "application/pdf" });
@@ -159,4 +189,39 @@ export const migrateFromLocalStorage = async (): Promise<boolean> => {
     console.error("Erreur lors de la migration des fichiers:", error);
     return false;
   }
+};
+
+// ─── Migration IndexedDB → OPFS (fichiers non chiffrés) ─────────────────────
+
+/**
+ * Migre les fichiers PDF non chiffrés d'IndexedDB vers OPFS.
+ * Ne fait rien si OPFS n'est pas supporté ou si aucune donnée IndexedDB n'existe.
+ * Retourne le nombre de fichiers migrés.
+ */
+export const migrateFilesToOPFS = async (): Promise<number> => {
+  if (!(await isOPFSSupported())) return 0;
+
+  // Vérifier s'il y a des fichiers dans IndexedDB
+  const indexedDBFiles = await fileStore.getItem<FileItem[]>(FILE_INDEX_KEY);
+  if (!indexedDBFiles || indexedDBFiles.length === 0) return 0;
+
+  let migrated = 0;
+
+  for (const fileItem of indexedDBFiles) {
+    const data = await fileStore.getItem<ArrayBuffer>(
+      `file_data_${fileItem.id}`,
+    );
+    if (data) {
+      await opfsSaveFile(OPFS_PDF_DIR, `file_data_${fileItem.id}`, data);
+      migrated++;
+    }
+  }
+
+  // Sauvegarder l'index dans OPFS
+  await opfsSaveJSON(OPFS_PDF_DIR, OPFS_INDEX_FILE, indexedDBFiles);
+
+  // Nettoyer IndexedDB
+  await fileStore.clear();
+
+  return migrated;
 };

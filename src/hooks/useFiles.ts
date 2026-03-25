@@ -7,6 +7,7 @@ import {
   deleteAllFilesFromStorage,
   isFileDuplicate,
   migrateFromLocalStorage,
+  migrateFilesToOPFS,
 } from "../services/fileStorage";
 import {
   saveFileEncrypted,
@@ -14,6 +15,7 @@ import {
   deleteFileEncrypted,
   deleteAllFilesEncrypted,
   isFileDuplicateEncrypted,
+  migrateEncryptedFilesToOPFS,
 } from "../services/encryptedStorage";
 import { useAuth } from "../contexts/AuthContext";
 
@@ -43,11 +45,17 @@ export const useFiles = (): UseFilesReturn => {
 
   useEffect(() => {
     const init = async () => {
+      // Chaîne de migration : localStorage → IndexedDB → OPFS
       await migrateFromLocalStorage();
+      if (pin) {
+        await migrateEncryptedFilesToOPFS(pin);
+      } else {
+        await migrateFilesToOPFS();
+      }
       await refreshFiles();
     };
     init();
-  }, [refreshFiles]);
+  }, [refreshFiles, pin]);
 
   const handleFilesDropped = async (newFiles: File[]) => {
     const duplicateChecks = await Promise.all(

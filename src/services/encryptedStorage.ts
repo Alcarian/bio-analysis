@@ -1,8 +1,12 @@
 /**
- * Couche de chiffrement pour le stockage IndexedDB.
+ * Couche de chiffrement pour le stockage.
  *
  * Encapsule les opérations de fileStorage et patientHistory
  * en ajoutant le chiffrement/déchiffrement AES-256-GCM transparent.
+ *
+ * Les fichiers binaires chiffrés sont stockés dans OPFS si disponible,
+ * sinon dans IndexedDB (fallback). L'historique et les paramètres
+ * restent dans IndexedDB (petites données).
  *
  * Le PIN est passé en paramètre (provenant du contexte React en mémoire).
  */
@@ -10,6 +14,14 @@
 import localforage from "localforage";
 import { FileItem, PatientAnalysis } from "../types";
 import { encrypt, decrypt, encryptJSON, decryptJSON } from "./cryptoService";
+import {
+  isOPFSSupported,
+  opfsSaveFile,
+  opfsGetFile,
+  opfsDeleteFile,
+  opfsClearDir,
+  OPFS_ENCRYPTED_DIR,
+} from "./opfsStorage";
 
 // ─── Stores IndexedDB chiffrés ───────────────────────────────────────────────
 
@@ -37,11 +49,16 @@ const PDF_PASSWORD_KEY = "pdf_password_enc";
 // ─── Fichiers PDF chiffrés ───────────────────────────────────────────────────
 
 /**
- * Récupère l'index des fichiers (métadonnées chiffrées)
+ * Récupère l'index des fichiers (métadonnées chiffrées).
+ * L'index chiffré est stocké dans OPFS si disponible, sinon IndexedDB.
  */
 const getEncryptedFileIndex = async (pin: string): Promise<FileItem[]> => {
-  const encrypted =
-    await encryptedFileStore.getItem<ArrayBuffer>(FILE_INDEX_KEY);
+  let encrypted: ArrayBuffer | null;
+  if (await isOPFSSupported()) {
+    encrypted = await opfsGetFile(OPFS_ENCRYPTED_DIR, FILE_INDEX_KEY);
+  } else {
+    encrypted = await encryptedFileStore.getItem<ArrayBuffer>(FILE_INDEX_KEY);
+  }
   if (!encrypted) return [];
   try {
     return await decryptJSON<FileItem[]>(encrypted, pin);
@@ -51,14 +68,18 @@ const getEncryptedFileIndex = async (pin: string): Promise<FileItem[]> => {
 };
 
 /**
- * Sauvegarde l'index des fichiers (chiffré)
+ * Sauvegarde l'index des fichiers (chiffré).
  */
 const saveEncryptedFileIndex = async (
   files: FileItem[],
   pin: string,
 ): Promise<void> => {
   const encrypted = await encryptJSON(files, pin);
-  await encryptedFileStore.setItem(FILE_INDEX_KEY, encrypted);
+  if (await isOPFSSupported()) {
+    await opfsSaveFile(OPFS_ENCRYPTED_DIR, FILE_INDEX_KEY, encrypted);
+  } else {
+    await encryptedFileStore.setItem(FILE_INDEX_KEY, encrypted);
+  }
 };
 
 /**
@@ -80,7 +101,15 @@ export const saveFileEncrypted = async (
     lastModified: file.lastModified,
   };
 
-  await encryptedFileStore.setItem(`file_enc_${newFile.id}`, encryptedData);
+  if (await isOPFSSupported()) {
+    await opfsSaveFile(
+      OPFS_ENCRYPTED_DIR,
+      `file_enc_${newFile.id}`,
+      encryptedData,
+    );
+  } else {
+    await encryptedFileStore.setItem(`file_enc_${newFile.id}`, encryptedData);
+  }
   files.push(newFile);
   await saveEncryptedFileIndex(files, pin);
 };
@@ -103,7 +132,11 @@ export const deleteFileEncrypted = async (
   const fileToDelete = files.find((f) => f.name === fileName);
 
   if (fileToDelete) {
-    await encryptedFileStore.removeItem(`file_enc_${fileToDelete.id}`);
+    if (await isOPFSSupported()) {
+      await opfsDeleteFile(OPFS_ENCRYPTED_DIR, `file_enc_${fileToDelete.id}`);
+    } else {
+      await encryptedFileStore.removeItem(`file_enc_${fileToDelete.id}`);
+    }
   }
 
   const filtered = files.filter((f) => f.name !== fileName);
@@ -114,7 +147,11 @@ export const deleteFileEncrypted = async (
  * Supprime tous les fichiers chiffrés
  */
 export const deleteAllFilesEncrypted = async (): Promise<void> => {
-  await encryptedFileStore.clear();
+  if (await isOPFSSupported()) {
+    await opfsClearDir(OPFS_ENCRYPTED_DIR);
+  } else {
+    await encryptedFileStore.clear();
+  }
 };
 
 /**
@@ -145,9 +182,17 @@ export const getFileEncrypted = async (
 
   if (!fileData) return null;
 
-  const encryptedBuffer = await encryptedFileStore.getItem<ArrayBuffer>(
-    `file_enc_${fileData.id}`,
-  );
+  let encryptedBuffer: ArrayBuffer | null;
+  if (await isOPFSSupported()) {
+    encryptedBuffer = await opfsGetFile(
+      OPFS_ENCRYPTED_DIR,
+      `file_enc_${fileData.id}`,
+    );
+  } else {
+    encryptedBuffer = await encryptedFileStore.getItem<ArrayBuffer>(
+      `file_enc_${fileData.id}`,
+    );
+  }
   if (!encryptedBuffer) return null;
 
   try {
@@ -300,4 +345,52 @@ export const migrateToEncryptedStorage = async (
   }
 
   return { filesMigrated, analysesMigrated };
+};
+
+// ─── Migration IndexedDB → OPFS (fichiers chiffrés) ─────────────────────────
+
+/**
+ * Migre les fichiers chiffrés d'IndexedDB vers OPFS.
+ * Nécessite le PIN pour lire l'index chiffré.
+ * Retourne le nombre de fichiers migrés.
+ */
+export const migrateEncryptedFilesToOPFS = async (
+  pin: string,
+): Promise<number> => {
+  if (!(await isOPFSSupported())) return 0;
+
+  // Vérifier s'il y a un index chiffré dans IndexedDB
+  const encryptedIndex =
+    await encryptedFileStore.getItem<ArrayBuffer>(FILE_INDEX_KEY);
+  if (!encryptedIndex) return 0;
+
+  // Déchiffrer l'index pour obtenir la liste des fichiers
+  let files: FileItem[];
+  try {
+    files = await decryptJSON<FileItem[]>(encryptedIndex, pin);
+  } catch {
+    return 0;
+  }
+  if (files.length === 0) return 0;
+
+  let migrated = 0;
+
+  // Migrer chaque fichier chiffré
+  for (const fileItem of files) {
+    const data = await encryptedFileStore.getItem<ArrayBuffer>(
+      `file_enc_${fileItem.id}`,
+    );
+    if (data) {
+      await opfsSaveFile(OPFS_ENCRYPTED_DIR, `file_enc_${fileItem.id}`, data);
+      migrated++;
+    }
+  }
+
+  // Migrer l'index chiffré dans OPFS
+  await opfsSaveFile(OPFS_ENCRYPTED_DIR, FILE_INDEX_KEY, encryptedIndex);
+
+  // Nettoyer IndexedDB (seulement les fichiers, pas les autres stores)
+  await encryptedFileStore.clear();
+
+  return migrated;
 };

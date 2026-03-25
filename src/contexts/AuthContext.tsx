@@ -5,6 +5,7 @@ import {
   verifyPin,
   PIN_VERIFICATION_KEY,
 } from "../services/cryptoService";
+import { requestPersistentStorage } from "../services/storageManager";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -62,6 +63,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
    */
   const initialize = useCallback(async () => {
     try {
+      // Demander le stockage persistant au plus tôt
+      requestPersistentStorage();
+
       const token = await authStore.getItem<ArrayBuffer>(PIN_VERIFICATION_KEY);
       if (token) {
         setStatus("locked");

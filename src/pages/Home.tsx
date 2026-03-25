@@ -31,6 +31,7 @@ import AnalysisCharts from "../components/AnalysisCharts";
 import ExportImportSection from "../components/ExportImportSection";
 import PdfPasswordDialog from "../components/PdfPasswordDialog";
 import WelcomeGuide from "../components/WelcomeGuide";
+import StorageIndicator from "../components/StorageIndicator";
 
 import { useFiles } from "../hooks/useFiles";
 import { useAnalyses } from "../hooks/useAnalyses";
@@ -176,7 +177,8 @@ const Home: React.FC = () => {
           )}
 
           {/* Icônes toujours visibles à droite */}
-          <Box sx={{ display: "flex", alignItems: "center" }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+            <StorageIndicator />
             <Tooltip title={mode === "dark" ? "Mode clair" : "Mode sombre"}>
               <IconButton onClick={toggleMode}>
                 {mode === "dark" ? <LightModeIcon /> : <DarkModeIcon />}
