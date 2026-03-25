@@ -118,6 +118,7 @@ const Home: React.FC = () => {
     pendingPasswordFile,
     retryWithPassword,
     cancelPasswordRequest,
+    setPdfPasswordImmediate,
   } = useFileProcessing(refreshAnalyses, pin, pdfPassword, updatePdfPassword);
 
   const onDeleteAllFiles = () => {
@@ -278,6 +279,7 @@ const Home: React.FC = () => {
         onComplete={(password?: string) => {
           if (password) {
             updatePdfPassword(password);
+            setPdfPasswordImmediate(password);
           }
           localStorage.setItem(WELCOME_GUIDE_KEY, "1");
           setShowWelcomeGuide(false);
@@ -366,6 +368,7 @@ const Home: React.FC = () => {
         fileName={null}
         onConfirm={(pw) => {
           updatePdfPassword(pw);
+          setPdfPasswordImmediate(pw);
           setShowPasswordDialog(false);
         }}
         onCancel={() => setShowPasswordDialog(false)}

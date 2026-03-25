@@ -63,10 +63,9 @@ const LockScreen: React.FC = () => {
     setError(null);
     try {
       await createPin(input);
-      // Stocker le mot de passe PDF en mémoire
-      setPdfPassword(pdfPwdInput);
-      // Sauvegarder le mot de passe PDF chiffré si fourni
+      // Stocker le mot de passe PDF en mémoire et le persister (seulement si fourni)
       if (pdfPwdInput) {
+        setPdfPassword(pdfPwdInput);
         await savePdfPasswordEncrypted(pdfPwdInput, input);
       }
       // Migrer les données existantes non chiffrées vers le store chiffré

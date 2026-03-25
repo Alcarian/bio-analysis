@@ -25,7 +25,7 @@ export const PdfPasswordProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const setPdfPassword = useCallback((password: string) => {
     setPasswordState(password);
-    setIsSet(true);
+    setIsSet(!!password);
   }, []);
 
   return (

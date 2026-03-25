@@ -39,6 +39,8 @@ interface UseFileProcessingReturn {
   retryWithPassword: (password: string) => void;
   /** Annuler la demande de mot de passe */
   cancelPasswordRequest: () => void;
+  /** Met à jour immédiatement le mot de passe PDF (sans attendre un re-rendu) */
+  setPdfPasswordImmediate: (password: string) => void;
 }
 
 /** Détecte si une erreur pdf.js est liée au mot de passe */
@@ -96,6 +98,10 @@ export const useFileProcessing = (
     pendingResolveRef.current = null;
     setPendingPasswordFile(null);
   };
+
+  const setPdfPasswordImmediate = React.useCallback((password: string) => {
+    pdfPasswordRef.current = password;
+  }, []);
 
   /** Demande le mot de passe à l'utilisateur via la dialog */
   const askForPassword = (fileName: string): Promise<string | null> =>
@@ -298,5 +304,6 @@ export const useFileProcessing = (
     pendingPasswordFile,
     retryWithPassword,
     cancelPasswordRequest,
+    setPdfPasswordImmediate,
   };
 };
