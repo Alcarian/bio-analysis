@@ -3,7 +3,6 @@ import { Box, Typography, Tooltip, Chip } from "@mui/material";
 import {
   CheckCircle as CheckCircleIcon,
   Warning as WarningIcon,
-  Storage as StorageIcon,
 } from "@mui/icons-material";
 import {
   isStoragePersisted,
@@ -34,12 +33,12 @@ const StorageIndicator: React.FC = () => {
       title={
         <Box>
           <Typography variant="body2" sx={{ fontWeight: 600 }}>
-            {persisted ? "Stockage persistant activé" : "Stockage non garanti"}
+            {persisted ? "Stockage persistant" : "Stockage non persistant"}
           </Typography>
           <Typography variant="caption" sx={{ display: "block", mt: 0.5 }}>
             {persisted
               ? "Vos données sont protégées contre le nettoyage automatique du navigateur."
-              : "Le navigateur peut supprimer vos données en cas de manque d'espace. Installez l'application pour améliorer la persistance."}
+              : "Le navigateur peut effacer vos données en cas de manque d'espace disque. Installez l'app en PWA pour activer la persistance."}
           </Typography>
           {usedLabel && (
             <Typography variant="caption" sx={{ display: "block", mt: 0.5 }}>
@@ -59,12 +58,9 @@ const StorageIndicator: React.FC = () => {
           )
         }
         label={
-          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-            <StorageIcon sx={{ fontSize: 14 }} />
-            <Typography variant="caption">
-              {persisted ? "Persistant" : "Non garanti"}
-            </Typography>
-          </Box>
+          <Typography variant="caption">
+            {persisted ? "Stockage sécurisé" : "Stockage limité"}
+          </Typography>
         }
         size="small"
         color={persisted ? "success" : "warning"}

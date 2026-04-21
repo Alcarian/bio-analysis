@@ -33,6 +33,26 @@ interface ColumnLayout {
   rangeEnd: number;
 }
 
+/**
+ * Profil d'un laboratoire : identifiant textuel + layout de colonnes.
+ * `columns: null` → layout inconnu, utiliser la détection dynamique.
+ */
+interface LabProfile {
+  id: string;
+  /** Nom lisible affiché dans les logs et l'UI */
+  name: string;
+  /**
+   * Chaînes à rechercher dans le texte brut du PDF (insensible à la casse).
+   * La PREMIÈRE correspondance active ce profil.
+   */
+  detectionPatterns: string[];
+  /**
+   * Layout de colonnes confirmé pour ce labo (positions X en points PDF).
+   * Mettre `null` si non encore confirmé → détection dynamique utilisée.
+   */
+  columns: ColumnLayout | null;
+}
+
 /** Ligne logique reconstituée (items groupés par Y) */
 interface LogicalLine {
   y: number;
@@ -69,6 +89,8 @@ export interface PDFData {
   biochemistryData: BiochemistryResult[];
   /** Lignes qui ressemblaient à des résultats mais dont le nom n'est pas dans le dictionnaire */
   skippedLines: SkippedLine[];
+  /** Laboratoire identifié automatiquement (undefined si non reconnu) */
+  detectedLab?: string;
 }
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
@@ -85,6 +107,98 @@ const DEFAULT_COL: ColumnLayout = {
   unitEnd: 380,
   rangeStart: 375,
   rangeEnd: 460,
+};
+
+/**
+ * Profils de laboratoires connus.
+ *
+ * Pour ajouter un nouveau labo :
+ *   1. Identifier les chaînes de texte qui apparaissent systématiquement dans ses PDFs.
+ *   2. Mesurer les positions X des colonnes sur un PDF de ce labo (dans les logs de diagnostic).
+ *   3. Ajouter l'entrée avec `columns: { ... }` ou `columns: null` si non encore mesurées.
+ *
+ * Colonnes Novelab confirmées (positions X en points PDF) :
+ *   Nom 0–270 | Valeur 270–320 | Unité 320–380 | Norme 375–460
+ */
+const LAB_PROFILES: LabProfile[] = [
+  {
+    id: "novelab",
+    name: "Novelab",
+    detectionPatterns: ["NOVELAB", "Novelab S.E.L", "CR_NOVELAB", "novelab@"],
+    columns: {
+      nameEnd: 270,
+      valueStart: 270,
+      valueEnd: 320,
+      unitStart: 320,
+      unitEnd: 380,
+      rangeStart: 375,
+      rangeEnd: 460,
+    },
+  },
+  {
+    id: "labco",
+    name: "Labco",
+    // Colonnes non encore confirmées → détection dynamique
+    detectionPatterns: ["LABCO", "Labco France", "labco.fr"],
+    columns: null,
+  },
+  {
+    id: "synlab",
+    name: "Synlab",
+    detectionPatterns: ["SYNLAB", "Synlab France", "synlab.fr"],
+    columns: null,
+  },
+  {
+    id: "cerba",
+    name: "Cerba",
+    detectionPatterns: ["CERBA", "Cerba Healthcare", "cerba.fr", "CerbaEurope"],
+    columns: null,
+  },
+  {
+    id: "biomnis",
+    name: "Eurofins Biomnis",
+    detectionPatterns: [
+      "BIOMNIS",
+      "Biomnis",
+      "eurofins-biomnis",
+      "Eurofins Biomnis",
+    ],
+    columns: null,
+  },
+  {
+    id: "inovie",
+    name: "Inovie",
+    detectionPatterns: ["INOVIE", "inovie.fr"],
+    columns: null,
+  },
+  {
+    id: "biogroup",
+    name: "Biogroup",
+    detectionPatterns: ["BIOGROUP", "Biogroup", "biogroup-lcd"],
+    columns: null,
+  },
+  {
+    id: "unilabs",
+    name: "Unilabs",
+    detectionPatterns: ["UNILABS", "Unilabs", "unilabs.fr"],
+    columns: null,
+  },
+];
+
+/**
+ * Tente d'identifier le laboratoire à partir du texte brut du PDF.
+ * Retourne le premier profil dont un pattern est trouvé, ou null.
+ */
+const detectLabProfile = (rawText: string): LabProfile | null => {
+  const lower = rawText.toLowerCase();
+  for (const profile of LAB_PROFILES) {
+    for (const pattern of profile.detectionPatterns) {
+      if (lower.includes(pattern.toLowerCase())) {
+        return profile;
+      }
+    }
+  }
+  return null;
 };
 
 /** En-têtes de section reconnus (comparés en majuscules, sans accents) */
@@ -434,6 +548,7 @@ const extractPositionedLines = async (
   fullText: string;
   pages: string[];
   layout: ColumnLayout;
+  labProfile: LabProfile | null;
 }> => {
   const allItems: TextItem[] = [];
   const pages: string[] = [];
@@ -493,8 +608,30 @@ const extractPositionedLines = async (
     }
   });
 
-  // ── Détection dynamique des colonnes ──
-  const layout = detectColumnLayout(allItems);
+  // ── Identification du labo et sélection du layout de colonnes ──
+  const rawFullText = allItems.map((it) => it.text).join(" ");
+  const labProfile = detectLabProfile(rawFullText);
+
+  let layout: ColumnLayout;
+  if (labProfile?.columns) {
+    // Profil confirmé : utiliser les colonnes connues de ce labo
+    layout = labProfile.columns;
+    console.info(
+      `[pdfExtractor] Labo identifié : ${labProfile.name} (colonnes configurées)`,
+    );
+  } else {
+    // Profil inconnu ou colonnes non configurées → détection dynamique
+    layout = detectColumnLayout(allItems);
+    if (labProfile) {
+      console.info(
+        `[pdfExtractor] Labo identifié : ${labProfile.name} (colonnes non configurées → détection dynamique)`,
+      );
+    } else {
+      console.info(
+        "[pdfExtractor] Labo non identifié → détection dynamique des colonnes",
+      );
+    }
+  }
 
   // Construire les lignes logiques
   const lines: LogicalLine[] = [];
@@ -549,7 +686,7 @@ const extractPositionedLines = async (
   const finIdx = fullText.indexOf("*** FIN DU COMPTE RENDU ***");
   if (finIdx !== -1) fullText = fullText.substring(0, finIdx).trim();
 
-  return { lines, fullText, pages, layout };
+  return { lines, fullText, pages, layout, labProfile };
 };
 
 /**
@@ -870,8 +1007,9 @@ export const extractPDFText = async (
     disableAutoFetch: true,
   }).promise;
 
-  // 1. Extraire les lignes positionnées
-  const { lines, fullText, pages, layout } = await extractPositionedLines(pdf);
+  // 1. Extraire les lignes positionnées + identifier le labo
+  const { lines, fullText, pages, layout, labProfile } =
+    await extractPositionedLines(pdf);
 
   // 2. Extraire la date de prélèvement
   const samplingDate = extractSamplingDate(lines);
@@ -879,15 +1017,20 @@ export const extractPDFText = async (
   // 3. Extraire tous les résultats d'analyses (passe positionnelle)
   let { results: biochemistryData, skippedLines } = extractAllResults(lines);
 
-  // 3b. Si la détection dynamique n'a rien trouvé et que le layout détecté
-  //     est différent du layout Novelab par défaut, réessayer avec le défaut.
+  // 3b. Si le layout utilisé n'a donné aucun résultat et qu'il diffère du layout par défaut,
+  //     réessayer avec DEFAULT_COL (utile quand la détection dynamique est imprécise
+  //     et quand le profil labo a des colonnes configurées non adaptées à ce PDF).
   const isDefaultLayout =
     layout.nameEnd === DEFAULT_COL.nameEnd &&
     layout.valueStart === DEFAULT_COL.valueStart;
   if (biochemistryData.length === 0 && !isDefaultLayout) {
     console.warn(
-      "[pdfExtractor] Layout détecté n'a donné aucun résultat, retry avec layout Novelab par défaut.",
-      { detected: layout, default: DEFAULT_COL },
+      "[pdfExtractor] Layout utilisé n'a donné aucun résultat, retry avec layout Novelab par défaut.",
+      {
+        labProfile: labProfile?.name ?? "inconnu",
+        detected: layout,
+        default: DEFAULT_COL,
+      },
     );
     const retryLines = reclassifyLines(lines, DEFAULT_COL);
     const retry = extractAllResults(retryLines);
@@ -909,6 +1052,7 @@ export const extractPDFText = async (
   // Log de diagnostic quand aucun résultat n'est trouvé
   if (allResults.length === 0) {
     console.warn(`[pdfExtractor] Aucun résultat extrait de « ${file.name} ».`, {
+      labProfile: labProfile?.name ?? "inconnu",
       layout,
       isDefaultLayout,
       totalLines: lines.length,
@@ -930,5 +1074,6 @@ export const extractPDFText = async (
     samplingDate,
     biochemistryData: allResults,
     skippedLines,
+    detectedLab: labProfile?.name,
   };
 };
