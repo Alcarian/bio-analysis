@@ -22,6 +22,7 @@ import {
   CheckCircle as CheckCircleIcon,
   Error as ErrorIcon,
   Wifi as WifiIcon,
+  PhoneAndroid as PhoneAndroidIcon,
 } from "@mui/icons-material";
 import { useAIModel } from "../hooks/useAIModel";
 
@@ -139,8 +140,22 @@ const AISettingsDialog: React.FC<AISettingsDialogProps> = ({
             fullWidth
             size="small"
             placeholder="http://localhost:1234"
-            helperText="Par défaut : http://localhost:1234 — Pour téléphone via réseau local : http://[IP-PC]:1234"
+            helperText="PC : http://localhost:1234 — Téléphone (via proxy) : l'URL de cette app"
           />
+          {/* Bouton d'aide pour remplir automatiquement l'URL de l'app (mode proxy) */}
+          <Button
+            size="small"
+            variant="text"
+            startIcon={<PhoneAndroidIcon />}
+            sx={{ mt: 0.5, fontSize: "0.75rem" }}
+            onClick={() => {
+              const origin = window.location.origin;
+              setUrlInput(origin);
+              setServerUrl(origin);
+            }}
+          >
+            Utiliser l'URL de cette app (mode téléphone)
+          </Button>
         </Box>
 
         {/* Bouton tester + statut */}
