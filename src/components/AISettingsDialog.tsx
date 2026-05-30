@@ -142,20 +142,55 @@ const AISettingsDialog: React.FC<AISettingsDialogProps> = ({
             placeholder="http://localhost:1234"
             helperText="PC : http://localhost:1234 — Téléphone (via proxy) : l'URL de cette app"
           />
-          {/* Bouton d'aide pour remplir automatiquement l'URL de l'app (mode proxy) */}
-          <Button
-            size="small"
-            variant="text"
-            startIcon={<PhoneAndroidIcon />}
-            sx={{ mt: 0.5, fontSize: "0.75rem" }}
-            onClick={() => {
-              const origin = window.location.origin;
-              setUrlInput(origin);
-              setServerUrl(origin);
-            }}
-          >
-            Utiliser l'URL de cette app (mode téléphone)
-          </Button>
+          {/* Aide mode téléphone */}
+          {(() => {
+            const isGithubPages =
+              window.location.hostname.endsWith("github.io") ||
+              window.location.protocol === "https:";
+            if (isGithubPages) {
+              return (
+                <Alert
+                  severity="info"
+                  sx={{ mt: 1 }}
+                  icon={<PhoneAndroidIcon />}
+                >
+                  <strong>Utilisation sur téléphone</strong>
+                  <Typography variant="body2" sx={{ mt: 0.5 }}>
+                    GitHub Pages (HTTPS) bloque les connexions vers LM Studio en
+                    HTTP. Pour utiliser l'IA sur votre téléphone :
+                  </Typography>
+                  <ol style={{ paddingLeft: 16, margin: "4px 0 0" }}>
+                    <li>
+                      Sur le PC, lancez : <code>npm run serve</code>
+                    </li>
+                    <li>
+                      Sur le téléphone, ouvrez{" "}
+                      <strong>http://192.168.1.73:3000</strong> (l'IP affichée
+                      dans le terminal)
+                    </li>
+                    <li>
+                      Dans Paramètres IA, l'URL sera remplie automatiquement
+                    </li>
+                  </ol>
+                </Alert>
+              );
+            }
+            return (
+              <Button
+                size="small"
+                variant="text"
+                startIcon={<PhoneAndroidIcon />}
+                sx={{ mt: 0.5, fontSize: "0.75rem" }}
+                onClick={() => {
+                  const origin = window.location.origin;
+                  setUrlInput(origin);
+                  setServerUrl(origin);
+                }}
+              >
+                Utiliser l'URL de cette app (mode téléphone)
+              </Button>
+            );
+          })()}
         </Box>
 
         {/* Bouton tester + statut */}
