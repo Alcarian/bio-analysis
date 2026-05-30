@@ -168,10 +168,7 @@ const AISettingsDialog: React.FC<AISettingsDialogProps> = ({
                 <Typography variant="body2" sx={{ mt: 0.5 }}>
                   Le navigateur a bloqué la requête. Deux causes possibles :
                 </Typography>
-                <Typography
-                  variant="body2"
-                  sx={{ mt: 1, fontWeight: "bold" }}
-                >
+                <Typography variant="body2" sx={{ mt: 1, fontWeight: "bold" }}>
                   1. CORS non activé dans LM Studio
                 </Typography>
                 <ol style={{ paddingLeft: 16, margin: "4px 0 0" }}>
