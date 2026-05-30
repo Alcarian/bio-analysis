@@ -164,25 +164,68 @@ const AISettingsDialog: React.FC<AISettingsDialogProps> = ({
           <>
             {errorMessage === "CORS_OR_NETWORK" ? (
               <Alert severity="error" sx={{ mb: 2 }}>
-                <strong>CORS non activé dans LM Studio</strong>
+                <strong>Connexion bloquée (CORS ou réseau)</strong>
                 <Typography variant="body2" sx={{ mt: 0.5 }}>
-                  Le serveur tourne mais le navigateur bloque la connexion. Pour
-                  corriger ça :
+                  Le navigateur a bloqué la requête. Deux causes possibles :
                 </Typography>
-                <ol style={{ paddingLeft: 16, margin: "6px 0 0" }}>
+                <Typography
+                  variant="body2"
+                  sx={{ mt: 1, fontWeight: "bold" }}
+                >
+                  1. CORS non activé dans LM Studio
+                </Typography>
+                <ol style={{ paddingLeft: 16, margin: "4px 0 0" }}>
                   <li>
-                    Dans LM Studio → onglet <strong>Developer</strong>
+                    LM Studio → onglet <strong>Developer</strong>
                   </li>
                   <li>
-                    En haut à droite du serveur, chercher{" "}
-                    <strong>"CORS"</strong> et l'<strong>activer</strong>
+                    Activer <strong>CORS</strong> (interrupteur en haut)
                   </li>
                   <li>
-                    Cliquer <strong>Stop</strong> puis{" "}
-                    <strong>Start Server</strong>
+                    <strong>Stop</strong> puis <strong>Start Server</strong>
                   </li>
-                  <li>Retester la connexion ici</li>
                 </ol>
+                {urlInput.match(/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/) && (
+                  <>
+                    <Typography
+                      variant="body2"
+                      sx={{ mt: 1.5, fontWeight: "bold" }}
+                    >
+                      2. Pare-feu Windows bloque le port 1234
+                    </Typography>
+                    <Typography variant="body2" sx={{ mt: 0.5 }}>
+                      LM Studio tourne bien mais seul <em>localhost</em> peut y
+                      accéder. Pour autoriser le réseau local :
+                    </Typography>
+                    <ol style={{ paddingLeft: 16, margin: "4px 0 0" }}>
+                      <li>
+                        Ouvrir <strong>Pare-feu Windows Defender</strong>
+                      </li>
+                      <li>
+                        → <strong>Règles de trafic entrant</strong> → Nouvelle
+                        règle
+                      </li>
+                      <li>
+                        Type : <strong>Port</strong> → TCP → port{" "}
+                        <strong>1234</strong>
+                      </li>
+                      <li>
+                        Autoriser la connexion → appliquer sur{" "}
+                        <strong>Domaine + Privé</strong>
+                      </li>
+                    </ol>
+                    <Typography
+                      variant="body2"
+                      sx={{ mt: 1, color: "text.secondary" }}
+                    >
+                      Astuce rapide (PowerShell admin) :{" "}
+                      <code>
+                        netsh advfirewall firewall add rule name="LMStudio"
+                        protocol=TCP dir=in localport=1234 action=allow
+                      </code>
+                    </Typography>
+                  </>
+                )}
               </Alert>
             ) : (
               <Alert severity="error" sx={{ mb: 2 }}>
