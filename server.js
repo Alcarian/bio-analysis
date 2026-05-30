@@ -239,13 +239,42 @@ server.listen(PORT, "0.0.0.0", () => {
   console.log(`   Proxy   : /v1/* → ${LM_STUDIO_URL}`);
 
   if (hasHttps) {
-    console.log(`\n🔒  Mode HTTPS actif`);
-    console.log(`\n📱  Sur votre téléphone (première fois) :`);
-    console.log(
-      `   1. Ouvrez http://${localIp}:${PORT}/ca.crt  (HTTP pour télécharger le cert)`,
-    );
-    console.log('   2. Installez le certificat → "Certificat CA"');
-    console.log(`   3. Puis ouvrez https://${localIp}:${PORT}`);
+    // Serveur HTTP secondaire sur port 3001 uniquement pour servir le certificat CA
+    // (le téléphone ne peut pas accéder au port HTTPS avant d'avoir installé le cert)
+    const CERT_HTTP_PORT = PORT + 1;
+    http
+      .createServer((req, res) => {
+        if (new URL(req.url, `http://localhost`).pathname === "/ca.crt") {
+          if (!fs.existsSync(CA_PATH)) {
+            res.writeHead(404, { "Content-Type": "text/plain" });
+            res.end("Certificat non trouvé. Lancez : npm run gen-cert");
+            return;
+          }
+          res.writeHead(200, {
+            "Content-Type": "application/x-x509-ca-cert",
+            "Content-Disposition": 'attachment; filename="bio-analysis-ca.crt"',
+          });
+          fs.createReadStream(CA_PATH).pipe(res);
+        } else {
+          // Redirige tout le reste vers HTTPS
+          res.writeHead(301, {
+            Location: `https://${req.headers.host?.replace(`:${CERT_HTTP_PORT}`, `:${PORT}`) ?? localIp + ":" + PORT}${req.url}`,
+          });
+          res.end();
+        }
+      })
+      .listen(CERT_HTTP_PORT, "0.0.0.0", () => {
+        console.log(`\n🔒  Mode HTTPS actif`);
+        console.log(`\n📱  Sur votre téléphone (première fois) :`);
+        console.log(
+          `   1. Ouvrez http://${localIp}:${CERT_HTTP_PORT}/ca.crt  ← télécharge le certificat`,
+        );
+        console.log(
+          "   2. Installez-le : Paramètres Android → Sécurité → Installer un certificat → CA",
+        );
+        console.log(`   3. Puis ouvrez : https://${localIp}:${PORT}`);
+        console.log("");
+      });
   } else {
     console.log(`\n⚠️   HTTP seulement (pas de HTTPS)`);
     console.log(
@@ -255,6 +284,6 @@ server.listen(PORT, "0.0.0.0", () => {
     console.log(
       `   Ouvrez http://${localIp}:${PORT} dans Chrome (pas l'icône installée)`,
     );
+    console.log("");
   }
-  console.log("");
 });
