@@ -26,5 +26,18 @@
   "orientation": "portrait-primary",
   "theme_color": "#1976d2",
   "background_color": "#ffffff",
-  "categories": ["health", "medical", "utilities"]
+  "categories": ["health", "medical", "utilities"],
+  "share_target": {
+    "action": "/share-pdf",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "files": [
+        {
+          "name": "pdf",
+          "accept": ["application/pdf", ".pdf"]
+        }
+      ]
+    }
+  }
 }

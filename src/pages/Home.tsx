@@ -20,6 +20,7 @@ import {
   Lock as LockIcon,
   VpnKey as VpnKeyIcon,
   KeyboardArrowUp as KeyboardArrowUpIcon,
+  Psychology as PsychologyIcon,
 } from "@mui/icons-material";
 import { useThemeMode } from "../contexts/ThemeContext";
 import { useAuth } from "../contexts/AuthContext";
@@ -32,6 +33,8 @@ import ExportImportSection from "../components/ExportImportSection";
 import PdfPasswordDialog from "../components/PdfPasswordDialog";
 import WelcomeGuide from "../components/WelcomeGuide";
 import StorageIndicator from "../components/StorageIndicator";
+import AISettingsDialog from "../components/AISettingsDialog";
+import { isAIReady } from "../services/aiExtractor";
 
 import { useFiles } from "../hooks/useFiles";
 import { useAnalyses } from "../hooks/useAnalyses";
@@ -44,6 +47,7 @@ const WELCOME_GUIDE_KEY = "bio-analysis-welcome-done";
 const Home: React.FC = () => {
   const [tabValue, setTabValue] = useState(0);
   const [showPasswordDialog, setShowPasswordDialog] = useState(false);
+  const [showAISettings, setShowAISettings] = useState(false);
   const [showWelcomeGuide, setShowWelcomeGuide] = useState(
     () => !localStorage.getItem(WELCOME_GUIDE_KEY),
   );
@@ -179,7 +183,21 @@ const Home: React.FC = () => {
 
           {/* Icônes toujours visibles à droite */}
           <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-            <StorageIndicator />
+            <StorageIndicator />{" "}
+            <Tooltip
+              title={
+                isAIReady()
+                  ? "IA connectée — Paramètres LM Studio"
+                  : "Configurer l'IA (LM Studio)"
+              }
+            >
+              <IconButton
+                onClick={() => setShowAISettings(true)}
+                color={isAIReady() ? "success" : "warning"}
+              >
+                <PsychologyIcon />
+              </IconButton>
+            </Tooltip>{" "}
             <Tooltip title={mode === "dark" ? "Mode clair" : "Mode sombre"}>
               <IconButton onClick={toggleMode}>
                 {mode === "dark" ? <LightModeIcon /> : <DarkModeIcon />}
@@ -360,6 +378,11 @@ const Home: React.FC = () => {
         fileName={pendingPasswordFile}
         onConfirm={retryWithPassword}
         onCancel={cancelPasswordRequest}
+      />
+
+      <AISettingsDialog
+        open={showAISettings}
+        onClose={() => setShowAISettings(false)}
       />
 
       {/* Dialog manuelle pour définir/changer le mot de passe PDF */}

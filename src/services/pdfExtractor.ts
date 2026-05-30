@@ -4,6 +4,7 @@ import {
   isKnownUnit,
   normalizeName,
 } from "../constants/labTestDictionary";
+import { isAIReady, extractWithAI, AIResult } from "./aiExtractor";
 
 // Configuration du worker pour pdf.js
 const workerPath = process.env.PUBLIC_URL
@@ -788,12 +789,14 @@ const extractAllResults = (
     // ── Déterminer le nom du test ──
     let testName = "";
 
-    // Cas "soit :" → valeur 24h du test précédent
+    // Cas "soit :" → valeur 24h du test précédent (UNIQUEMENT en section urinaire)
+    // En section sanguine, "soit :" est une simple conversion d'unité (µg/l ↔ g/l) → ignorer
     if (/^soit\s*:?$/i.test(nameText.trim())) {
-      if (lastTestName) {
+      const isUrineSection = /URINAIRE|URINE/i.test(currentSection);
+      if (lastTestName && isUrineSection) {
         testName = `${lastTestName} (24h)`;
       } else {
-        continue;
+        continue; // conversion d'unité → ignorer
       }
     }
     // Cas "Polynucléaires … XX % soit : VALUE" → le nom est avant le premier ":"
@@ -988,6 +991,68 @@ const extractViaRegexFallback = (
   return results;
 };
 
+// ─── Mapping résultats IA → BiochemistryResult ──────────────────────────────
+
+/**
+ * Convertit les résultats bruts de l'IA en BiochemistryResult en validant
+ * chaque nom de test via le dictionnaire.
+ */
+const mapAIResults = (
+  aiResults: AIResult[],
+): { results: BiochemistryResult[]; skippedLines: SkippedLine[] } => {
+  const results: BiochemistryResult[] = [];
+  const skippedLines: SkippedLine[] = [];
+
+  console.debug(
+    "[mapAIResults] Entrée :",
+    aiResults.map((r) => r.testName),
+  );
+
+  for (const ai of aiResults) {
+    const dictEntry = findTestByName(ai.testName);
+
+    // Valider que la valeur est bien un nombre
+    const numValue =
+      typeof ai.value === "number"
+        ? ai.value
+        : parseFloat(String(ai.value).replace(",", "."));
+
+    if (isNaN(numValue)) {
+      console.warn("[mapAIResults] Valeur non numérique ignorée :", ai);
+      skippedLines.push({
+        name: ai.testName,
+        value: String(ai.value),
+        unit: ai.unit,
+      });
+      continue;
+    }
+
+    let rangeInfo: ReturnType<typeof parseRange> | undefined;
+    if (ai.normalRange) {
+      rangeInfo = parseRange(ai.normalRange);
+    }
+
+    results.push({
+      testName: dictEntry?.canonicalName ?? ai.testName,
+      value: numValue,
+      unit: ai.unit,
+      section: dictEntry?.section ?? "GÉNÉRAL",
+      normalRange: rangeInfo?.normalRange,
+      normalMin: rangeInfo?.normalMin,
+      normalMax: rangeInfo?.normalMax,
+    });
+  }
+
+  console.debug(
+    "[mapAIResults] Sortie :",
+    results.map((r) => r.testName),
+    "| Ignorés :",
+    skippedLines.map((s) => s.name),
+  );
+
+  return { results, skippedLines };
+};
+
 // ─── API publique ────────────────────────────────────────────────────────────
 
 export const extractPDFText = async (
@@ -1014,12 +1079,16 @@ export const extractPDFText = async (
   // 2. Extraire la date de prélèvement
   const samplingDate = extractSamplingDate(lines);
 
-  // 3. Extraire tous les résultats d'analyses (passe positionnelle)
-  let { results: biochemistryData, skippedLines } = extractAllResults(lines);
+  // 3. Extraction positionnelle (source principale — toujours exécutée)
+  let biochemistryData: BiochemistryResult[] = [];
+  let skippedLines: SkippedLine[] = [];
 
-  // 3b. Si le layout utilisé n'a donné aucun résultat et qu'il diffère du layout par défaut,
-  //     réessayer avec DEFAULT_COL (utile quand la détection dynamique est imprécise
-  //     et quand le profil labo a des colonnes configurées non adaptées à ce PDF).
+  const classical = extractAllResults(lines);
+  biochemistryData = classical.results;
+  skippedLines = classical.skippedLines;
+
+  // 3b. Si le layout détecté n'a donné aucun résultat et qu'il diffère du layout par défaut,
+  //     réessayer avec DEFAULT_COL (utile quand la détection dynamique est imprécise).
   const isDefaultLayout =
     layout.nameEnd === DEFAULT_COL.nameEnd &&
     layout.valueStart === DEFAULT_COL.valueStart;
@@ -1037,6 +1106,50 @@ export const extractPDFText = async (
     if (retry.results.length > 0) {
       biochemistryData = retry.results;
       skippedLines = retry.skippedLines;
+    }
+  }
+
+  console.info(
+    `[pdfExtractor] Extraction positionnelle : ${biochemistryData.length} résultat(s)`,
+  );
+
+  // 3c. Passe IA en COMPLÉMENT : chercher les tests manqués par l'extraction positionnelle
+  // 3c. Passe IA en COMPLÉMENT : identifier les tests dont le nom n'est pas reconnu par le dictionnaire.
+  //
+  // On envoie UNIQUEMENT les skippedLines (tests avec valeur/unité correctement extraites
+  // par l'extraction positionnelle, mais dont le nom n'est pas dans le dictionnaire).
+  //
+  // POURQUOI ce choix :
+  // - Les valeurs sont déjà correctes (extraites positionnellement, sans antériorités)
+  // - L'IA n'a pas accès aux antériorités ni aux plages de référence → 0 risque d'erreur
+  // - L'IA n'ajoute jamais de doublons des tests déjà trouvés
+  if (isAIReady() && skippedLines.length > 0) {
+    const skippedText = skippedLines
+      .map((s) => [s.name, s.value, s.unit].filter(Boolean).join(" | "))
+      .join("\n");
+
+    const aiRaw = await extractWithAI(skippedText);
+    if (aiRaw.length > 0) {
+      const mapped = mapAIResults(aiRaw);
+      const positionalNames = new Set(
+        biochemistryData.map((r) => normalizeName(r.testName)),
+      );
+      let aiAdded = 0;
+      for (const aiResult of mapped.results) {
+        const norm = normalizeName(aiResult.testName);
+        if (!positionalNames.has(norm)) {
+          biochemistryData.push(aiResult);
+          positionalNames.add(norm);
+          aiAdded++;
+        }
+      }
+      console.info(
+        `[pdfExtractor] IA a identifié ${aiAdded}/${skippedLines.length} test(s) non reconnus par le dictionnaire`,
+      );
+    } else {
+      console.warn(
+        "[pdfExtractor] IA n'a identifié aucun test dans les lignes non reconnues.",
+      );
     }
   }
 

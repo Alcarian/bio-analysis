@@ -7,12 +7,12 @@ import {
   Button,
   Chip,
   Tooltip,
+  LinearProgress,
 } from "@mui/material";
 import React, { useEffect, useState } from "react";
 import DeleteIcon from "@mui/icons-material/Delete";
 import AnalyticsIcon from "@mui/icons-material/Analytics";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
-import HourglassEmptyIcon from "@mui/icons-material/HourglassEmpty";
 import PDFViewer from "./PDFViewer";
 import { getFileFromStorage } from "../services/fileStorage";
 import { getFileEncrypted } from "../services/encryptedStorage";
@@ -28,16 +28,7 @@ interface FileListProps {
 }
 
 const statusChip = (status: FileStatus, isCurrent: boolean) => {
-  if (isCurrent)
-    return (
-      <Chip
-        icon={<HourglassEmptyIcon />}
-        label="En cours..."
-        color="warning"
-        size="small"
-        variant="outlined"
-      />
-    );
+  if (isCurrent) return null;
   if (status === "done")
     return (
       <Chip
@@ -118,7 +109,7 @@ const FileListItem: React.FC<{
           {file.name}
         </Typography>
         {statusChip(status, isCurrent)}
-        {onAnalyze && (
+        {onAnalyze && !isCurrent && (
           <Tooltip title={isDone ? "Ré-analyser" : "Analyser"}>
             <span>
               <Button
@@ -127,7 +118,6 @@ const FileListItem: React.FC<{
                 color="primary"
                 startIcon={<AnalyticsIcon />}
                 onClick={() => onAnalyze(file.name)}
-                disabled={isCurrent}
                 sx={{
                   whiteSpace: "nowrap",
                   fontSize: { xs: "0.7rem", sm: "0.8125rem" },
@@ -138,6 +128,21 @@ const FileListItem: React.FC<{
               </Button>
             </span>
           </Tooltip>
+        )}
+        {isCurrent && (
+          <Box sx={{ flex: 1, minWidth: 80 }}>
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ display: "block", mb: 0.5, fontSize: "0.7rem" }}
+            >
+              Analyse en cours…
+            </Typography>
+            <LinearProgress
+              color="primary"
+              sx={{ borderRadius: 1, height: 5 }}
+            />
+          </Box>
         )}
         <Tooltip title="Supprimer">
           <span>

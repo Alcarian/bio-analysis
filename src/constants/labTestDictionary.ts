@@ -27,8 +27,9 @@ export interface LabTestEntry {
 export const normalizeName = (s: string): string =>
   s
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[\u0300-\u036f]/g, "") // supprimer accents
     .toUpperCase()
+    .replace(/\./g, "") // supprimer points (V.G.M. → VGM)
     .replace(/\s+/g, " ")
     .trim();
 
@@ -426,6 +427,8 @@ export const LAB_TEST_DICTIONARY: LabTestEntry[] = [
       "GAMMA GLUTAMYL TRANSFERASE",
       "GAMMA-GLUTAMYL TRANSFERASE",
       "GAMMA GLUTAMYL TRANSPEPTIDASE",
+      "GAMMA GLUTAMYL TRANFERASE",
+      "GAMMA-GLUTAMYL TRANFERASE",
     ],
     section: "BIOCHIMIE SANGUINE",
     units: ["UI/L", "U/L"],

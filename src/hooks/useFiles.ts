@@ -31,7 +31,7 @@ interface UseFilesReturn {
 export const useFiles = (): UseFilesReturn => {
   const [files, setFiles] = useState<FileItem[]>([]);
   const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null);
-  const { pin } = useAuth();
+  const { pin, status } = useAuth();
 
   const refreshFiles = useCallback(async () => {
     if (pin) {
@@ -56,6 +56,48 @@ export const useFiles = (): UseFilesReturn => {
     };
     init();
   }, [refreshFiles, pin]);
+
+  // Charge les fichiers PDF reçus via le Web Share Target (partage mobile)
+  useEffect(() => {
+    // Attendre que l'authentification soit résolue (pas en chargement ou verrouillée)
+    if (status === "loading" || status === "locked") return;
+
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has("shared")) return;
+
+    const loadSharedFiles = async () => {
+      if (!("caches" in window)) return;
+      try {
+        const cache = await caches.open("bio-shared-files-v1");
+        const requests = await cache.keys();
+        const sharedFiles: File[] = [];
+
+        for (const req of requests) {
+          const response = await cache.match(req);
+          if (response) {
+            const blob = await response.blob();
+            const pathname = new URL(req.url).pathname;
+            const fileName = decodeURIComponent(
+              pathname.replace("/shared-pdf/", ""),
+            );
+            sharedFiles.push(
+              new File([blob], fileName, { type: "application/pdf" }),
+            );
+            await cache.delete(req);
+          }
+        }
+
+        if (sharedFiles.length > 0) {
+          await handleFilesDropped(sharedFiles);
+        }
+      } finally {
+        url.searchParams.delete("shared");
+        window.history.replaceState({}, "", url.toString());
+      }
+    };
+
+    loadSharedFiles();
+  }, [status]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleFilesDropped = async (newFiles: File[]) => {
     const duplicateChecks = await Promise.all(
