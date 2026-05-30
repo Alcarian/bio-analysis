@@ -4,6 +4,8 @@
  * - Sert les fichiers statiques du dossier build/
  * - Proxy /v1/* → LM Studio (localhost:1234 par défaut)
  *   → permet au téléphone d'utiliser l'IA sans problème CORS
+ * - HTTPS automatique si certs/cert.pem + certs/key.pem existent
+ *   (générer avec : npm run gen-cert)
  *
  * Usage :
  *   node server.js
@@ -15,6 +17,7 @@ const http = require("http");
 const https = require("https");
 const fs = require("fs");
 const path = require("path");
+const os = require("os");
 const { URL } = require("url");
 
 const PORT = parseInt(process.env.PORT || "3000", 10);
@@ -35,6 +38,27 @@ const MIME_TYPES = {
   ".woff": "font/woff",
   ".woff2": "font/woff2",
 };
+
+// ─── Détection des certs HTTPS ────────────────────────────────────────────────
+
+const CERTS_DIR = path.join(__dirname, "certs");
+const CERT_PATH = path.join(CERTS_DIR, "cert.pem");
+const KEY_PATH = path.join(CERTS_DIR, "key.pem");
+const CA_PATH = path.join(CERTS_DIR, "ca.crt");
+
+const hasHttps = fs.existsSync(CERT_PATH) && fs.existsSync(KEY_PATH);
+
+// ─── IP locale ────────────────────────────────────────────────────────────────
+
+function getLocalIp() {
+  const nets = os.networkInterfaces();
+  for (const name of Object.keys(nets)) {
+    for (const net of nets[name]) {
+      if (net.family === "IPv4" && !net.internal) return net.address;
+    }
+  }
+  return "VOTRE-IP";
+}
 
 // ─── Proxy vers LM Studio ─────────────────────────────────────────────────────
 
@@ -92,9 +116,9 @@ function proxyToLMStudio(req, res) {
   req.pipe(proxyReq, { end: true });
 }
 
-// ─── Serveur principal ────────────────────────────────────────────────────────
+// ─── Handler HTTP ────────────────────────────────────────────────────────────
 
-const server = http.createServer((req, res) => {
+function requestHandler(req, res) {
   let parsedUrl;
   try {
     parsedUrl = new URL(req.url, `http://localhost:${PORT}`);
@@ -118,6 +142,21 @@ const server = http.createServer((req, res) => {
   // Proxy toutes les requêtes /v1/* vers LM Studio
   if (parsedUrl.pathname.startsWith("/v1/")) {
     proxyToLMStudio(req, res);
+    return;
+  }
+
+  // Téléchargement du certificat CA pour installation sur téléphone
+  if (parsedUrl.pathname === "/ca.crt") {
+    if (!fs.existsSync(CA_PATH)) {
+      res.writeHead(404, { "Content-Type": "text/plain" });
+      res.end("Certificat non trouvé. Lancez : npm run gen-cert");
+      return;
+    }
+    res.writeHead(200, {
+      "Content-Type": "application/x-x509-ca-cert",
+      "Content-Disposition": 'attachment; filename="bio-analysis-ca.crt"',
+    });
+    fs.createReadStream(CA_PATH).pipe(res);
     return;
   }
 
@@ -171,35 +210,51 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, headers);
     res.end(data);
   });
-});
+}
+
+// ─── Démarrage du serveur ─────────────────────────────────────────────────────
+
+let server;
+if (hasHttps) {
+  server = https.createServer(
+    {
+      cert: fs.readFileSync(CERT_PATH),
+      key: fs.readFileSync(KEY_PATH),
+    },
+    requestHandler,
+  );
+} else {
+  server = http.createServer(requestHandler);
+}
 
 server.listen(PORT, "0.0.0.0", () => {
-  // Récupérer l'IP locale pour l'afficher
-  let localIp = "VOTRE-IP";
-  try {
-    const { networkInterfaces } = require("os");
-    const nets = networkInterfaces();
-    for (const name of Object.keys(nets)) {
-      for (const net of nets[name]) {
-        if (net.family === "IPv4" && !net.internal) {
-          localIp = net.address;
-          break;
-        }
-      }
-      if (localIp !== "VOTRE-IP") break;
-    }
-  } catch {}
+  const localIp = getLocalIp();
+  const protocol = hasHttps ? "https" : "http";
 
   console.log("\n✅  Bio Analysis — serveur de production démarré");
-  console.log(`   Local   : http://localhost:${PORT}`);
+  console.log(`   Local   : ${protocol}://localhost:${PORT}`);
   console.log(
-    `   Réseau  : http://${localIp}:${PORT}  ← URL à utiliser sur le téléphone`,
+    `   Réseau  : ${protocol}://${localIp}:${PORT}  ← URL à utiliser sur le téléphone`,
   );
   console.log(`   Proxy   : /v1/* → ${LM_STUDIO_URL}`);
-  console.log(`\n📱  Sur votre téléphone :`);
-  console.log(`   1. Ouvrez http://${localIp}:${PORT}`);
-  console.log(
-    `   2. Dans Paramètres IA, mettez l'URL : http://${localIp}:${PORT}`,
-  );
-  console.log(`      (l'app se charge elle-même de contacter LM Studio)\n`);
+
+  if (hasHttps) {
+    console.log(`\n🔒  Mode HTTPS actif`);
+    console.log(`\n📱  Sur votre téléphone (première fois) :`);
+    console.log(
+      `   1. Ouvrez http://${localIp}:${PORT}/ca.crt  (HTTP pour télécharger le cert)`,
+    );
+    console.log('   2. Installez le certificat → "Certificat CA"');
+    console.log(`   3. Puis ouvrez https://${localIp}:${PORT}`);
+  } else {
+    console.log(`\n⚠️   HTTP seulement (pas de HTTPS)`);
+    console.log(
+      `   → Pour activer HTTPS (requis pour l'icône PWA) : npm run gen-cert`,
+    );
+    console.log(`\n📱  Sur votre téléphone :`);
+    console.log(
+      `   Ouvrez http://${localIp}:${PORT} dans Chrome (pas l'icône installée)`,
+    );
+  }
+  console.log("");
 });

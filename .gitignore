@@ -25,3 +25,6 @@ yarn-error.log*
 # local env files
 .env
 .env.*.local
+
+# Certificats HTTPS locaux (clé privée — ne jamais committer)
+/certs/

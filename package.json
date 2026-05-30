@@ -29,6 +29,7 @@
     "start": "react-scripts start",
     "build": "react-scripts build",
     "serve": "node server.js",
+    "gen-cert": "node scripts/gen-cert.js",
     "test": "react-scripts test",
     "eject": "react-scripts eject"
   },
@@ -49,5 +50,8 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
+  },
+  "devDependencies": {
+    "selfsigned": "^5.5.0"
   }
 }
